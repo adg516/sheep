@@ -1,5 +1,7 @@
-from sqlmodel import create_engine, Session, SQLModel
+from sqlmodel import Session, SQLModel, create_engine
+
 from app.core.config import settings
+
 
 connect_args = {"check_same_thread": False} if settings.database_url.startswith("sqlite") else {}
 engine = create_engine(settings.database_url, connect_args=connect_args)
@@ -10,5 +12,5 @@ def init_db():
 
 
 def get_session():
-    with Session(engine) as s:
-        yield s
+    with Session(engine) as session:
+        yield session

@@ -1,6 +1,8 @@
-from pydantic import BaseModel
 from typing import List
+
 from openai import OpenAI
+from pydantic import BaseModel
+
 from app.core.config import settings
 
 
@@ -19,11 +21,21 @@ class QuestionOut(BaseModel):
 
 class MockLLM:
     def extract_facts(self, raw_text: str):
-        lines = [l.strip() for l in raw_text.splitlines() if l.strip()]
-        return [FactOut(fact_text=l, explanation="From user source", tags=["user_note"]) for l in lines[:5]]
+        lines = [line.strip() for line in raw_text.splitlines() if line.strip()]
+        return [
+            FactOut(fact_text=line, explanation="From user source", tags=["user_note"])
+            for line in lines[:5]
+        ]
 
     def generate_questions(self, fact_text: str, explanation: str):
-        return [QuestionOut(prompt=f"What is true about: {fact_text}?", correct_answer=fact_text, acceptable_answers=[fact_text], explanation=explanation)]
+        return [
+            QuestionOut(
+                prompt=f"What is true about: {fact_text}?",
+                correct_answer=fact_text,
+                acceptable_answers=[fact_text],
+                explanation=explanation,
+            )
+        ]
 
     def grade(self, answer: str, correct: str):
         ok = correct.lower() in answer.lower() or answer.lower() in correct.lower()
