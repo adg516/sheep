@@ -1,0 +1,20 @@
+:root { font-family: Inter, system-ui, Arial, sans-serif; color-scheme: light; }
+* { box-sizing: border-box; }
+body { margin: 0; background: #f7f7fb; color: #111827; }
+.app { max-width: 980px; margin: 0 auto; padding: 12px; }
+.header { display:flex; flex-wrap:wrap; gap:10px; align-items:center; justify-content:space-between; margin-bottom: 12px; }
+.title { font-size: clamp(1.25rem, 3vw, 1.8rem); margin:0; }
+.btn { background:#111827; color:white; border:none; border-radius:10px; padding:10px 12px; font-weight:600; }
+.grid { display:grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.card { background:white; border-radius:12px; padding:12px; box-shadow:0 1px 4px rgba(0,0,0,0.08); }
+.card h2 { margin: 0 0 10px 0; font-size: 1.05rem; }
+.kv { display:grid; grid-template-columns: 120px 1fr; gap:6px; font-size:.95rem; }
+.badge { display:inline-block; background:#eef2ff; color:#312e81; padding:4px 8px; border-radius:999px; font-size:.8rem; }
+.list { margin:0; padding-left: 18px; }
+.mono { background:#f3f4f6; padding:10px; border-radius:8px; overflow:auto; font-size:.8rem; }
+@media (max-width: 760px) {
+  .app { padding: 10px; }
+  .grid { grid-template-columns: 1fr; }
+  .kv { grid-template-columns: 1fr; }
+  .btn { width: 100%; }
+}
