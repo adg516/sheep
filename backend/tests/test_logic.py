@@ -1,6 +1,7 @@
 from datetime import datetime, date, timedelta
 from sqlmodel import SQLModel, Session, create_engine
 from app.models import *
+from app.db import normalize_database_url
 from app.services.planner import classify_day, score_topic, generate_plan
 from app.services.quiz import select_today_questions
 
@@ -12,6 +13,10 @@ def mk():
 def test_day_classification():
     ev=[CalendarEvent(title='BJJ',start_at=datetime(2026,1,1,21),end_at=datetime(2026,1,1,22),tags=[])]
     assert classify_day(ev)=='late_bjj_day'
+
+def test_postgres_database_urls_use_installed_driver():
+    assert normalize_database_url('postgres://u:p@h:5432/db') == 'postgresql+psycopg://u:p@h:5432/db'
+    assert normalize_database_url('postgresql://u:p@h:5432/db') == 'postgresql+psycopg://u:p@h:5432/db'
 
 def test_task_priority_scoring():
     s=mk(); t=Topic(name='DDIA',category=TopicCategory.professional,priority_weight=5); s.add(t); s.commit(); s.refresh(t)
