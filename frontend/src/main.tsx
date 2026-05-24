@@ -5,6 +5,7 @@ import './styles.css';
 const env = (import.meta as any).env;
 const defaultApi = env.VITE_API_URL || 'https://arjunsheep-api.fly.dev';
 const defaultPassword = env.VITE_APP_PASSWORD || '';
+const frontendHosts = ['arjunsheep.vercel.app'];
 
 type Tab = 'Today' | 'Quiz' | 'Tasks' | 'Targets' | 'Notes' | 'Settings';
 type Grade = 'again' | 'hard' | 'good' | 'easy';
@@ -252,6 +253,30 @@ function getSourceCitation(question?: Question) {
   return sourceName ? `${sourceName}: ${details.join(', ')}` : details.join(', ');
 }
 
+function isFrontendApiUrl(value: string) {
+  const trimmed = value.trim().replace(/\/$/, '');
+  if (!trimmed || trimmed.startsWith('/')) return true;
+  try {
+    const parsed = new URL(trimmed);
+    return (
+      parsed.origin === window.location.origin ||
+      frontendHosts.includes(parsed.hostname) ||
+      parsed.hostname.endsWith('-megabird87-1408s-projects.vercel.app')
+    );
+  } catch {
+    return true;
+  }
+}
+
+function storedApiBase() {
+  const stored = localStorage.getItem('command-card-api-url') || '';
+  if (stored && isFrontendApiUrl(stored)) {
+    localStorage.removeItem('command-card-api-url');
+    return defaultApi;
+  }
+  return stored || defaultApi;
+}
+
 function Button({ variant = 'secondary', size = 'md', className = '', ...props }: ButtonProps) {
   return (
     <button
@@ -348,7 +373,7 @@ function App() {
   const today = useMemo(() => localDateString(), []);
   const [activeTab, setActiveTab] = useState<Tab>('Today');
   const [apiBase, setApiBase] = useState(
-    () => localStorage.getItem('command-card-api-url') || defaultApi,
+    () => storedApiBase(),
   );
   const [appPassword, setAppPassword] = useState(
     () => localStorage.getItem('command-card-password') || defaultPassword,
@@ -424,6 +449,18 @@ function App() {
     if (!response.ok) {
       const detail = await response.text().catch(() => '');
       throw new Error(detail || `Request failed (${response.status})`);
+    }
+
+    const contentType = response.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) {
+      const detail = await response.text().catch(() => '');
+      if (detail.trim().startsWith('<!doctype') || detail.trim().startsWith('<html')) {
+        localStorage.removeItem('command-card-api-url');
+        setApiBase(defaultApi);
+        setSettingsDraft((current) => ({ ...current, apiBase: defaultApi }));
+        throw new Error('The saved API URL pointed at the frontend. I reset it to the production backend; refresh once if this stays visible.');
+      }
+      throw new Error(`Expected JSON from API but got ${contentType || 'a non-JSON response'}.`);
     }
 
     return response.json() as Promise<T>;
@@ -889,10 +926,12 @@ function App() {
   }
 
   function saveSettings() {
-    localStorage.setItem('command-card-api-url', settingsDraft.apiBase);
+    const nextApiBase = isFrontendApiUrl(settingsDraft.apiBase) ? defaultApi : settingsDraft.apiBase;
+    localStorage.setItem('command-card-api-url', nextApiBase);
     localStorage.setItem('command-card-password', settingsDraft.appPassword);
-    setApiBase(settingsDraft.apiBase);
+    setApiBase(nextApiBase);
     setAppPassword(settingsDraft.appPassword);
+    setSettingsDraft({ apiBase: nextApiBase, appPassword: settingsDraft.appPassword });
   }
 
   const quizMix = useMemo(() => {
