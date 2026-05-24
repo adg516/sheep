@@ -430,13 +430,11 @@ function App() {
     null;
 
   async function requestJson<T>(path: string, options: RequestInit & { body?: unknown } = {}) {
-    const base = apiBase.replace(/\/$/, '');
-    const url = `${base}${path.startsWith('/') ? path : `/${path}`}`;
     const body =
       options.body && typeof options.body !== 'string'
         ? JSON.stringify(options.body)
         : (options.body as BodyInit | null | undefined);
-    const response = await fetch(url, {
+    const requestInit = {
       ...options,
       body,
       headers: {
@@ -444,26 +442,37 @@ function App() {
         'x-app-password': appPassword,
         ...(options.headers || {}),
       },
-    });
+    };
+    const apiUrl = (baseValue: string) =>
+      `${baseValue.replace(/\/$/, '')}${path.startsWith('/') ? path : `/${path}`}`;
 
-    if (!response.ok) {
-      const detail = await response.text().catch(() => '');
-      throw new Error(detail || `Request failed (${response.status})`);
-    }
+    const parseJson = async (response: Response, retried = false): Promise<T> => {
+      if (!response.ok) {
+        const detail = await response.text().catch(() => '');
+        throw new Error(detail || `Request failed (${response.status})`);
+      }
 
-    const contentType = response.headers.get('content-type') || '';
-    if (!contentType.includes('application/json')) {
+      const contentType = response.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        return response.json() as Promise<T>;
+      }
+
       const detail = await response.text().catch(() => '');
-      if (detail.trim().startsWith('<!doctype') || detail.trim().startsWith('<html')) {
+      const looksLikeHtml = detail.trim().startsWith('<!doctype') || detail.trim().startsWith('<html');
+      if (looksLikeHtml && !retried) {
         localStorage.removeItem('command-card-api-url');
         setApiBase(defaultApi);
         setSettingsDraft((current) => ({ ...current, apiBase: defaultApi }));
-        throw new Error('The saved API URL pointed at the frontend. I reset it to the production backend; refresh once if this stays visible.');
+        return parseJson(await fetch(apiUrl(defaultApi), requestInit), true);
+      }
+
+      if (looksLikeHtml) {
+        throw new Error('The API URL is still returning the frontend instead of the backend.');
       }
       throw new Error(`Expected JSON from API but got ${contentType || 'a non-JSON response'}.`);
-    }
+    };
 
-    return response.json() as Promise<T>;
+    return parseJson(await fetch(apiUrl(apiBase), requestInit));
   }
 
   async function loadData() {
