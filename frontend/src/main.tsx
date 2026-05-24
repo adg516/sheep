@@ -3,9 +3,13 @@ import { createRoot } from 'react-dom/client';
 import './styles.css';
 
 const env = (import.meta as any).env;
-const defaultApi = env.VITE_API_URL || 'https://arjunsheep-api.fly.dev';
-const defaultPassword = env.VITE_APP_PASSWORD || '';
+const productionApi = 'https://arjunsheep-api.fly.dev';
 const frontendHosts = ['arjunsheep.vercel.app'];
+const isProductionFrontend =
+  frontendHosts.includes(window.location.hostname) ||
+  window.location.hostname.endsWith('-megabird87-1408s-projects.vercel.app');
+const defaultApi = isProductionFrontend ? productionApi : env.VITE_API_URL || productionApi;
+const defaultPassword = env.VITE_APP_PASSWORD || '';
 
 type Tab = 'Today' | 'Quiz' | 'Tasks' | 'Targets' | 'Notes' | 'Settings';
 type Grade = 'again' | 'hard' | 'good' | 'easy';
@@ -268,8 +272,21 @@ function isFrontendApiUrl(value: string) {
   }
 }
 
+function isLocalApiUrl(value: string) {
+  try {
+    const parsed = new URL(value);
+    return parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1' || parsed.hostname === '::1';
+  } catch {
+    return false;
+  }
+}
+
 function storedApiBase() {
   const stored = localStorage.getItem('command-card-api-url') || '';
+  if (isProductionFrontend && !isLocalApiUrl(stored)) {
+    localStorage.removeItem('command-card-api-url');
+    return productionApi;
+  }
   if (stored && isFrontendApiUrl(stored)) {
     localStorage.removeItem('command-card-api-url');
     return defaultApi;
@@ -461,9 +478,10 @@ function App() {
       const looksLikeHtml = detail.trim().startsWith('<!doctype') || detail.trim().startsWith('<html');
       if (looksLikeHtml && !retried) {
         localStorage.removeItem('command-card-api-url');
-        setApiBase(defaultApi);
-        setSettingsDraft((current) => ({ ...current, apiBase: defaultApi }));
-        return parseJson(await fetch(apiUrl(defaultApi), requestInit), true);
+        const fallbackApi = isProductionFrontend ? productionApi : defaultApi;
+        setApiBase(fallbackApi);
+        setSettingsDraft((current) => ({ ...current, apiBase: fallbackApi }));
+        return parseJson(await fetch(apiUrl(fallbackApi), requestInit), true);
       }
 
       if (looksLikeHtml) {
@@ -935,7 +953,12 @@ function App() {
   }
 
   function saveSettings() {
-    const nextApiBase = isFrontendApiUrl(settingsDraft.apiBase) ? defaultApi : settingsDraft.apiBase;
+    const nextApiBase =
+      isProductionFrontend && !isLocalApiUrl(settingsDraft.apiBase)
+        ? productionApi
+        : isFrontendApiUrl(settingsDraft.apiBase)
+          ? defaultApi
+          : settingsDraft.apiBase;
     localStorage.setItem('command-card-api-url', nextApiBase);
     localStorage.setItem('command-card-password', settingsDraft.appPassword);
     setApiBase(nextApiBase);
