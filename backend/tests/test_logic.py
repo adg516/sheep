@@ -3,6 +3,7 @@ import json
 from sqlmodel import SQLModel, Session, create_engine, select
 from app.models import *
 from app.db import normalize_database_url
+from app.main import coerce_ymd_date
 from app.services.planner import classify_day, score_topic, generate_plan
 from app.services.quiz import select_today_questions
 from app.services.import_mcq import import_mcq_jsonl
@@ -19,6 +20,10 @@ def test_day_classification():
 def test_postgres_database_urls_use_installed_driver():
     assert normalize_database_url('postgres://u:p@h:5432/db') == 'postgresql+psycopg://u:p@h:5432/db'
     assert normalize_database_url('postgresql://u:p@h:5432/db') == 'postgresql+psycopg://u:p@h:5432/db'
+
+def test_coerce_ymd_date_for_json_payloads():
+    assert coerce_ymd_date('2026-05-23') == date(2026, 5, 23)
+    assert coerce_ymd_date(date(2026, 5, 23)) == date(2026, 5, 23)
 
 def test_task_priority_scoring():
     s=mk(); t=Topic(name='Startup',category=TopicCategory.professional,priority_weight=5); s.add(t); s.commit(); s.refresh(t)

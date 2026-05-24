@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import date as date_type, datetime, timedelta
 
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -79,6 +79,14 @@ def get_ddia_chapter_setting(session: Session) -> dict:
         "chapters": sorted({int(chapter) for chapter in selected if str(chapter).isdigit()}),
         "available_chapters": available_ddia_chapters(session),
     }
+
+
+def coerce_ymd_date(value) -> date_type:
+    if isinstance(value, date_type):
+        return value
+    if isinstance(value, str):
+        return datetime.strptime(value, "%Y-%m-%d").date()
+    raise ValueError("Expected date in YYYY-MM-DD format")
 
 
 for name, model in [
@@ -341,7 +349,12 @@ def quiz_review(payload: dict, session: Session = Depends(get_session)):
 
 @app.post("/api/checkin", dependencies=api_auth)
 def checkin(checkin: DailyCheckIn, session: Session = Depends(get_session)):
-    existing = session.exec(select(DailyCheckIn).where(DailyCheckIn.date == checkin.date)).first()
+    try:
+        checkin_date = coerce_ymd_date(checkin.date)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    checkin.date = checkin_date
+    existing = session.exec(select(DailyCheckIn).where(DailyCheckIn.date == checkin_date)).first()
     if existing:
         existing.sleep_quality = checkin.sleep_quality
         existing.soreness = checkin.soreness
