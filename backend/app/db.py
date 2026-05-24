@@ -1,3 +1,4 @@
+from sqlalchemy import inspect, text
 from sqlmodel import Session, SQLModel, create_engine
 
 from app.core.config import settings
@@ -16,8 +17,29 @@ connect_args = {"check_same_thread": False} if database_url.startswith("sqlite")
 engine = create_engine(database_url, connect_args=connect_args)
 
 
+def ensure_question_import_columns():
+    columns = {
+        "external_id": "VARCHAR",
+        "choices": "JSON",
+        "correct_choice": "VARCHAR",
+        "metadata": "JSON",
+    }
+    with engine.begin() as connection:
+        inspector = inspect(connection)
+        if "question" not in inspector.get_table_names():
+            return
+
+        existing = {column["name"] for column in inspector.get_columns("question")}
+        for name, column_type in columns.items():
+            if name not in existing:
+                connection.execute(text(f"ALTER TABLE question ADD COLUMN {name} {column_type}"))
+
+        connection.execute(text("CREATE INDEX IF NOT EXISTS ix_question_external_id ON question (external_id)"))
+
+
 def init_db():
     SQLModel.metadata.create_all(engine)
+    ensure_question_import_columns()
 
 
 def get_session():

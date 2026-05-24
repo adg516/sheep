@@ -23,12 +23,16 @@ class WeeklyTarget(SQLModel, table=True):
     id:Optional[int]=Field(default=None, primary_key=True); topic_id:int=Field(foreign_key="topic.id"); target_type:TargetType; target_value:int; current_period_start:date; active:bool=True
 class Task(SQLModel, table=True):
     id:Optional[int]=Field(default=None, primary_key=True); topic_id:Optional[int]=Field(default=None, foreign_key="topic.id"); title:str; description:Optional[str]=None; energy_cost:EnergyCost=EnergyCost.medium; duration_minutes:int=45; status:TaskStatus=TaskStatus.planned; scheduled_date:Optional[date]=None; completed_at:Optional[datetime]=None; created_at:datetime=Field(default_factory=datetime.utcnow)
+class AdminItem(SQLModel, table=True):
+    id:Optional[int]=Field(default=None, primary_key=True); title:str; active:bool=True; created_at:datetime=Field(default_factory=datetime.utcnow)
+class AppSetting(SQLModel, table=True):
+    key:str=Field(primary_key=True); value:dict=Field(default_factory=dict, sa_column=Column(JSON)); updated_at:datetime=Field(default_factory=datetime.utcnow)
 class Source(SQLModel, table=True):
     id:Optional[int]=Field(default=None, primary_key=True); topic_id:int=Field(foreign_key="topic.id"); title:str; source_type:SourceType; raw_text:str; source_ref:Optional[str]=None; created_at:datetime=Field(default_factory=datetime.utcnow)
 class AtomicFact(SQLModel, table=True):
     id:Optional[int]=Field(default=None, primary_key=True); source_id:int=Field(foreign_key="source.id"); topic_id:int=Field(foreign_key="topic.id"); fact_text:str; explanation:str; tags:list[str]=Field(default_factory=list, sa_column=Column(JSON)); status:FactStatus=FactStatus.needs_review; difficulty:int=2; created_at:datetime=Field(default_factory=datetime.utcnow)
 class Question(SQLModel, table=True):
-    id:Optional[int]=Field(default=None, primary_key=True); fact_id:int=Field(foreign_key="atomicfact.id"); topic_id:int=Field(foreign_key="topic.id"); question_type:QuestionType=QuestionType.short_answer; prompt:str; correct_answer:str; acceptable_answers:list[str]=Field(default_factory=list, sa_column=Column(JSON)); distractors:Optional[list[str]]=Field(default=None, sa_column=Column(JSON)); explanation:str; active:bool=True; created_at:datetime=Field(default_factory=datetime.utcnow)
+    id:Optional[int]=Field(default=None, primary_key=True); external_id:Optional[str]=Field(default=None, index=True); fact_id:int=Field(foreign_key="atomicfact.id"); topic_id:int=Field(foreign_key="topic.id"); question_type:QuestionType=QuestionType.short_answer; prompt:str; correct_answer:str; acceptable_answers:list[str]=Field(default_factory=list, sa_column=Column(JSON)); distractors:Optional[list[str]]=Field(default=None, sa_column=Column(JSON)); choices:list[dict]=Field(default_factory=list, sa_column=Column(JSON)); correct_choice:Optional[str]=None; metadata_json:dict=Field(default_factory=dict, sa_column=Column("metadata", JSON)); explanation:str; active:bool=True; created_at:datetime=Field(default_factory=datetime.utcnow)
 class Review(SQLModel, table=True):
     id:Optional[int]=Field(default=None, primary_key=True); question_id:int=Field(foreign_key="question.id"); reviewed_at:datetime=Field(default_factory=datetime.utcnow); user_answer:str; grade:Grade; is_correct:bool; feedback:Optional[str]=None
 class CardState(SQLModel, table=True):

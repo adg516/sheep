@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import './styles.css';
 
 const env = (import.meta as any).env;
-const defaultApi = env.VITE_API_URL || 'http://localhost:8000';
+const defaultApi = env.VITE_API_URL || 'https://arjunsheep-api.fly.dev';
 const defaultPassword = env.VITE_APP_PASSWORD || '';
 
 type Tab = 'Today' | 'Quiz' | 'Tasks' | 'Targets' | 'Notes' | 'Settings';
@@ -49,6 +49,11 @@ type Source = {
   source_ref?: string | null;
 };
 
+type Choice = {
+  label: string;
+  text: string;
+};
+
 type Fact = {
   id: number;
   source_id: number;
@@ -63,9 +68,14 @@ type Question = {
   id: number;
   fact_id: number;
   topic_id: number;
+  question_type?: string;
   prompt: string;
   correct_answer: string;
   acceptable_answers: string[];
+  distractors?: string[] | null;
+  choices?: Choice[];
+  correct_choice?: string | null;
+  metadata_json?: Record<string, any>;
   explanation: string;
   active: boolean;
 };
@@ -74,12 +84,17 @@ type Plan = {
   id?: number;
   date?: string;
   day_type?: string;
-  main_focus?: { topic?: string; score?: number };
-  secondary_focus?: { topic?: string; score?: number } | null;
-  training?: Record<string, string> | null;
-  admin?: Record<string, string> | null;
+  main_focus?: { topic?: string; score?: number; minutes?: number; suggestion?: string | null };
+  secondary_focus?: { topic?: string; score?: number; minutes?: number; suggestion?: string | null } | null;
+  training?: { hint?: string } | null;
+  admin?: { hint?: string; options?: string[] } | null;
   quiz?: { count?: number };
   avoid?: string[];
+};
+
+type DdiaChapterSettings = {
+  chapters: number[];
+  available_chapters: number[];
 };
 
 type CheckIn = {
@@ -113,9 +128,16 @@ type ButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
 };
 
 const tabs: Tab[] = ['Today', 'Quiz', 'Tasks', 'Targets', 'Notes', 'Settings'];
-const activeCore = ['DDIA', 'LeetCode', 'BJJ', 'Lifting', 'Chinese', 'Startup'];
-const maintenance = ['Meditation', 'Meal prep', 'Admin', 'Friends/social', 'Fun reading'];
-const optional = ['Hindi', 'Spanish', 'Computational psych', 'NYC restaurants', 'Bidet reviews'];
+const categoryOrder = [
+  { key: 'professional', title: 'Professional' },
+  { key: 'language', title: 'Study' },
+  { key: 'training', title: 'Training' },
+  { key: 'admin', title: 'Admin' },
+  { key: 'creative', title: 'Creative' },
+  { key: 'social', title: 'Social' },
+  { key: 'health', title: 'Health' },
+  { key: 'other', title: 'Other' },
+];
 
 function localDateString(date = new Date()) {
   const shifted = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
@@ -142,6 +164,92 @@ function titleCase(value?: string) {
   return value
     .replace(/_/g, ' ')
     .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function displayCategory(value?: string) {
+  if (!value) return 'Unmapped';
+  if (value === 'language') return 'Study';
+  return titleCase(value);
+}
+
+function getChoices(question?: Question): Choice[] {
+  if (!question) return [];
+  if (question.choices?.length) return question.choices;
+  if (question.distractors?.length) {
+    return [question.correct_answer, ...question.distractors].map((text, index) => ({
+      label: String.fromCharCode(65 + index),
+      text,
+    }));
+  }
+  return [];
+}
+
+function normalizedAnswer(value: string) {
+  return value.trim().toLowerCase();
+}
+
+function isAnswerCorrect(question: Question, userAnswer: string) {
+  const normalized = normalizedAnswer(userAnswer);
+  if (!normalized) return null;
+
+  const choices = getChoices(question);
+  const selectedChoice = choices.find(
+    (choice) =>
+      normalizedAnswer(choice.label) === normalized ||
+      normalizedAnswer(choice.text) === normalized ||
+      normalizedAnswer(`${choice.label}. ${choice.text}`) === normalized,
+  );
+
+  if (question.correct_choice && selectedChoice) {
+    return normalizedAnswer(selectedChoice.label) === normalizedAnswer(question.correct_choice);
+  }
+
+  if (question.correct_choice && normalized === normalizedAnswer(question.correct_choice)) return true;
+  const accepted = [question.correct_answer, ...(question.acceptable_answers || [])].map(normalizedAnswer);
+  return accepted.includes(normalized);
+}
+
+function formatRange(
+  start: unknown,
+  end: unknown,
+  singleLabel: string,
+  rangeLabel: string,
+) {
+  const startNumber = Number(start);
+  if (!Number.isFinite(startNumber)) return '';
+  const endNumber = Number(end);
+  if (Number.isFinite(endNumber) && endNumber !== startNumber) {
+    return `${rangeLabel} ${startNumber}-${endNumber}`;
+  }
+  return `${singleLabel} ${startNumber}`;
+}
+
+function getSourceCitation(question?: Question) {
+  const metadata = question?.metadata_json || {};
+  const source = String(metadata.short_source || metadata.source_title || metadata.source || '').trim();
+  const sourceName = source.includes('Data-Intensive') ? 'DDIA2' : source;
+  const details = [];
+
+  if (metadata.chapter !== undefined && metadata.chapter !== null) details.push(`Ch. ${metadata.chapter}`);
+  if (metadata.section) details.push(String(metadata.section));
+
+  const bookPages = formatRange(
+    metadata.source_page_start ?? metadata.page_start,
+    metadata.source_page_end ?? metadata.page_end,
+    'p.',
+    'pp.',
+  );
+  const pdfPages = formatRange(
+    metadata.source_pdf_page_start ?? metadata.pdf_page_start,
+    metadata.source_pdf_page_end ?? metadata.pdf_page_end,
+    'PDF p.',
+    'PDF pp.',
+  );
+  if (bookPages) details.push(bookPages);
+  if (pdfPages) details.push(`(${pdfPages})`);
+
+  if (!sourceName && !details.length) return '';
+  return sourceName ? `${sourceName}: ${details.join(', ')}` : details.join(', ');
 }
 
 function Button({ variant = 'secondary', size = 'md', className = '', ...props }: ButtonProps) {
@@ -257,6 +365,11 @@ function App() {
   const [quiz, setQuiz] = useState<Question[]>([]);
   const [checkin, setCheckin] = useState<CheckIn | null>(null);
   const [events, setEvents] = useState<CalendarEvent[]>([]);
+  const [ddiaSettings, setDdiaSettings] = useState<DdiaChapterSettings>({
+    chapters: [],
+    available_chapters: [],
+  });
+  const [selectedDdiaChapters, setSelectedDdiaChapters] = useState<number[]>([]);
 
   const [setup, setSetup] = useState<SetupState>({
     sleep_quality: 'meh',
@@ -335,6 +448,7 @@ function App() {
         nextFacts,
         nextApprovedFacts,
         nextEvents,
+        nextDdiaSettings,
       ] = await Promise.all([
         requestJson<Plan | null>(`/api/plan/today?date=${today}`),
         requestJson<CheckIn | null>(`/api/checkin?date=${today}`),
@@ -346,6 +460,7 @@ function App() {
         requestJson<Fact[]>('/api/facts?status=needs_review'),
         requestJson<Fact[]>('/api/facts?status=approved'),
         requestJson<CalendarEvent[]>(`/api/calendar/events?date=${today}`),
+        requestJson<DdiaChapterSettings>('/api/settings/ddia-chapters'),
       ]);
 
       setPlan(nextPlan);
@@ -358,6 +473,8 @@ function App() {
       setFacts(nextFacts);
       setApprovedFacts(nextApprovedFacts);
       setEvents(nextEvents);
+      setDdiaSettings(nextDdiaSettings);
+      setSelectedDdiaChapters(nextDdiaSettings.chapters || []);
       setError('');
       if (quizIndex >= nextQuiz.length) setQuizIndex(0);
     } catch (err) {
@@ -427,6 +544,31 @@ function App() {
 
   function taskIsWork(task: Task) {
     return task.description === 'work_task' || topicCategory(task) === 'professional' || (!task.topic_id && !taskIsAdmin(task));
+  }
+
+  function toggleDdiaChapter(chapter: number) {
+    setSelectedDdiaChapters((current) =>
+      current.includes(chapter)
+        ? current.filter((item) => item !== chapter)
+        : [...current, chapter].sort((a, b) => a - b),
+    );
+  }
+
+  async function saveDdiaChapters(chapters = selectedDdiaChapters) {
+    setSaving(true);
+    try {
+      const next = await requestJson<DdiaChapterSettings>('/api/settings/ddia-chapters', {
+        method: 'PATCH',
+        body: { chapters },
+      });
+      setDdiaSettings(next);
+      setSelectedDdiaChapters(next.chapters || []);
+      await loadData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function generatePlan() {
@@ -597,6 +739,7 @@ function App() {
   async function gradeQuestion(grade: Grade) {
     const question = quiz[quizIndex];
     if (!question) return;
+    const inferredCorrect = isAnswerCorrect(question, answer);
 
     setSaving(true);
     try {
@@ -606,6 +749,7 @@ function App() {
           question_id: question.id,
           user_answer: answer,
           grade,
+          is_correct: inferredCorrect ?? (grade === 'good' || grade === 'easy'),
         },
       });
       setQuizFeedback(result.llm_feedback?.feedback || '');
@@ -621,6 +765,7 @@ function App() {
   function moveToNextQuestion() {
     setAnswer('');
     setAnswerRevealed(false);
+    setQuizFeedback('');
     setQuizIndex((current) => Math.min(current + 1, quiz.length));
   }
 
@@ -766,6 +911,15 @@ function App() {
     .filter((task) => task.status === 'missed' || task.status === 'skipped' || task.scheduled_date === today)
     .slice()
     .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
+  const topicBuckets = categoryOrder
+    .map((bucket) => ({
+      ...bucket,
+      topics: topics
+        .filter((topic) => topic.category === bucket.key)
+        .slice()
+        .sort((a, b) => b.priority_weight - a.priority_weight || a.name.localeCompare(b.name)),
+    }))
+    .filter((bucket) => bucket.topics.length);
 
   function renderToday() {
     return (
@@ -939,22 +1093,26 @@ function App() {
                 </Button>
               }
             />
-            <div className="metric-row">
-              <div>
-                <span className="metric">{plan?.quiz?.count ?? quiz.length}</span>
-                <span className="metric-label">planned cards</span>
-              </div>
-              <div className="topic-mix">
-                {quizMix.length ? (
-                  quizMix.map(([name, count]) => (
+            <div className="quiz-summary">
+              {quizMix.length ? (
+                <div className="topic-mix">
+                  {quizMix.map(([name, count]) => (
                     <Badge key={name} tone="neutral">
                       {name} {count}
                     </Badge>
-                  ))
-                ) : (
-                  <span className="muted">No quiz selected yet.</span>
-                )}
-              </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="muted">No quiz selected yet. Generate the plan to refresh the queue.</p>
+              )}
+              <DdiaChapterSelector
+                available={ddiaSettings.available_chapters}
+                selected={selectedDdiaChapters}
+                onToggle={toggleDdiaChapter}
+                onSave={() => saveDdiaChapters()}
+                saving={saving}
+                compact
+              />
             </div>
           </Card>
 
@@ -992,6 +1150,8 @@ function App() {
     const fact = question ? factById.get(question.fact_id) : undefined;
     const source = fact ? sourceById.get(fact.source_id) : undefined;
     const topic = question ? topicById.get(question.topic_id) : undefined;
+    const choices = getChoices(question);
+    const sourceCitation = getSourceCitation(question) || source?.source_ref || '';
     const complete = quiz.length > 0 && quizIndex >= quiz.length;
 
     return (
@@ -1019,24 +1179,61 @@ function App() {
                     <p>{question.prompt}</p>
                   </div>
 
-                  <label className="field-label" htmlFor="quiz-answer">
-                    Your answer
-                  </label>
-                  <textarea
-                    id="quiz-answer"
-                    value={answer}
-                    onChange={(event) => setAnswer(event.target.value)}
-                    onKeyDown={(event) => {
-                      if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
-                        event.preventDefault();
-                        revealAnswer();
-                      }
-                    }}
-                    placeholder="Answer from memory. Cmd/Ctrl+Enter reveals the answer."
-                  />
+                  {choices.length ? (
+                    <div className="choice-list" role="radiogroup" aria-label="Answer choices">
+                      {choices.map((choice) => {
+                        const selected =
+                          normalizedAnswer(answer) === normalizedAnswer(choice.label) ||
+                          normalizedAnswer(answer) === normalizedAnswer(choice.text) ||
+                          normalizedAnswer(answer) === normalizedAnswer(`${choice.label}. ${choice.text}`);
+                        const isCorrect = question.correct_choice
+                          ? normalizedAnswer(choice.label) === normalizedAnswer(question.correct_choice)
+                          : normalizedAnswer(choice.text) === normalizedAnswer(question.correct_answer);
+                        return (
+                          <button
+                            key={`${choice.label}-${choice.text}`}
+                            type="button"
+                            className={[
+                              'choice',
+                              selected ? 'selected' : '',
+                              answerRevealed && isCorrect ? 'correct' : '',
+                              answerRevealed && selected && !isCorrect ? 'incorrect' : '',
+                            ]
+                              .filter(Boolean)
+                              .join(' ')}
+                            onClick={() => setAnswer(choice.label)}
+                            disabled={answerRevealed}
+                            role="radio"
+                            aria-checked={selected}
+                          >
+                            <span>{choice.label}</span>
+                            <strong>{choice.text}</strong>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <>
+                      <label className="field-label" htmlFor="quiz-answer">
+                        Your answer
+                      </label>
+                      <textarea
+                        id="quiz-answer"
+                        value={answer}
+                        onChange={(event) => setAnswer(event.target.value)}
+                        onKeyDown={(event) => {
+                          if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+                            event.preventDefault();
+                            revealAnswer();
+                          }
+                        }}
+                        placeholder="Answer from memory. Cmd/Ctrl+Enter reveals the answer."
+                      />
+                    </>
+                  )}
 
                   <div className="button-row">
-                    <Button variant="primary" onClick={revealAnswer} disabled={answerRevealed}>
+                    <Button variant="primary" onClick={revealAnswer} disabled={answerRevealed || (choices.length > 0 && !answer)}>
                       Submit
                     </Button>
                     <Button variant="ghost" onClick={moveToNextQuestion}>
@@ -1048,16 +1245,19 @@ function App() {
                     <div className="answer-panel">
                       <div>
                         <span className="mini-label">Correct answer</span>
-                        <p>{question.correct_answer}</p>
+                        <p>
+                          {question.correct_choice ? `${question.correct_choice}. ` : ''}
+                          {question.correct_answer}
+                        </p>
                       </div>
                       <div>
                         <span className="mini-label">Explanation</span>
                         <p>{question.explanation || fact?.explanation || 'No explanation saved.'}</p>
                       </div>
-                      {source?.source_ref ? (
+                      {sourceCitation ? (
                         <div>
                           <span className="mini-label">Source</span>
-                          <p>{source.source_ref}</p>
+                          <p className="source-ref">{sourceCitation}</p>
                         </div>
                       ) : null}
                       <div>
@@ -1173,36 +1373,18 @@ function App() {
   function renderTargets() {
     return (
       <div className="page-stack">
-        <TargetGroup
-          title="Active Core"
-          names={activeCore}
-          topics={topics}
-          targets={targets}
-          tasks={tasks}
-          today={today}
-          onToggle={toggleTarget}
-          onEdit={editTarget}
-        />
-        <TargetGroup
-          title="Maintenance"
-          names={maintenance}
-          topics={topics}
-          targets={targets}
-          tasks={tasks}
-          today={today}
-          onToggle={toggleTarget}
-          onEdit={editTarget}
-        />
-        <TargetGroup
-          title="Exploration / Optional"
-          names={optional}
-          topics={topics}
-          targets={targets}
-          tasks={tasks}
-          today={today}
-          onToggle={toggleTarget}
-          onEdit={editTarget}
-        />
+        {topicBuckets.map((bucket) => (
+          <TargetBucket
+            key={bucket.key}
+            title={bucket.title}
+            bucketTopics={bucket.topics}
+            targets={targets}
+            tasks={tasks}
+            today={today}
+            onToggle={toggleTarget}
+            onEdit={editTarget}
+          />
+        ))}
       </div>
     );
   }
@@ -1339,7 +1521,19 @@ function App() {
             </div>
             <div>
               <strong>DDIA chapter filter</strong>
-              <span>Not exposed by the current API.</span>
+              <span>
+                {selectedDdiaChapters.length
+                  ? `Testing chapters ${selectedDdiaChapters.join(', ')}`
+                  : 'All imported DDIA chapters are eligible.'}
+              </span>
+              <DdiaChapterSelector
+                available={ddiaSettings.available_chapters}
+                selected={selectedDdiaChapters}
+                onToggle={toggleDdiaChapter}
+                onSave={() => saveDdiaChapters()}
+                onClear={() => saveDdiaChapters([])}
+                saving={saving}
+              />
             </div>
             <div>
               <strong>Debug</strong>
@@ -1389,6 +1583,55 @@ function App() {
         {activeTab === 'Notes' ? renderNotes() : null}
         {activeTab === 'Settings' ? renderSettings() : null}
       </main>
+    </div>
+  );
+}
+
+function DdiaChapterSelector({
+  available,
+  selected,
+  onToggle,
+  onSave,
+  onClear,
+  saving,
+  compact = false,
+}: {
+  available: number[];
+  selected: number[];
+  onToggle: (chapter: number) => void;
+  onSave: () => void;
+  onClear?: () => void;
+  saving: boolean;
+  compact?: boolean;
+}) {
+  if (!available.length) {
+    return compact ? null : <p className="muted">No sourced DDIA chapters imported yet.</p>;
+  }
+
+  return (
+    <div className={compact ? 'chapter-control compact' : 'chapter-control'}>
+      <div className="chapter-grid">
+        {available.map((chapter) => (
+          <button
+            key={chapter}
+            type="button"
+            className={selected.includes(chapter) ? 'chapter-option selected' : 'chapter-option'}
+            onClick={() => onToggle(chapter)}
+          >
+            Ch. {chapter}
+          </button>
+        ))}
+      </div>
+      <div className="button-row">
+        <Button size="sm" variant="primary" onClick={onSave} disabled={saving}>
+          Save DDIA chapters
+        </Button>
+        {onClear ? (
+          <Button size="sm" variant="ghost" onClick={onClear} disabled={saving || !selected.length}>
+            Test all
+          </Button>
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -1469,6 +1712,75 @@ function TaskRow({
         </div>
       ) : null}
     </div>
+  );
+}
+
+function TargetBucket({
+  title,
+  bucketTopics,
+  targets,
+  tasks,
+  today,
+  onToggle,
+  onEdit,
+}: {
+  title: string;
+  bucketTopics: Topic[];
+  targets: WeeklyTarget[];
+  tasks: Task[];
+  today: string;
+  onToggle: (target: WeeklyTarget | undefined, topic: Topic | undefined) => void;
+  onEdit: (target: WeeklyTarget | undefined, topic: Topic | undefined) => void;
+}) {
+  return (
+    <Card>
+      <SectionHeader eyebrow="Goals" title={title} />
+      <div className="target-grid">
+        {bucketTopics.map((topic) => {
+          const target = targets.find((item) => item.topic_id === topic.id);
+          const start = target?.current_period_start || weekStart(today);
+          const done = tasks.filter(
+            (task) =>
+              task.topic_id === topic.id &&
+              task.status === 'done' &&
+              String(task.scheduled_date || task.completed_at || '').slice(0, 10) >= start,
+          ).length;
+          const targetValue = target?.target_value || 0;
+          const progress = targetValue ? (done / targetValue) * 100 : 0;
+
+          return (
+            <div className="target-card" key={topic.id}>
+              <div className="target-top">
+                <div>
+                  <strong>{topic.name}</strong>
+                  <span>{displayCategory(topic.category)}</span>
+                </div>
+                <Badge tone={target?.active && topic.active ? 'good' : 'neutral'}>
+                  {target?.active && topic.active ? 'Active' : 'Off'}
+                </Badge>
+              </div>
+              <p>
+                {target
+                  ? `${done}/${target.target_value} ${target.target_type} this week`
+                  : 'No weekly target set'}
+              </p>
+              <ProgressBar value={progress} />
+              <div className="target-meta">
+                <span>Priority {topic.priority_weight}</span>
+                <div>
+                  <Button size="sm" onClick={() => onToggle(target, topic)}>
+                    Toggle
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => onEdit(target, topic)}>
+                    Edit
+                  </Button>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </Card>
   );
 }
 

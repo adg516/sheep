@@ -1,0 +1,10 @@
+backend/.venv/
+backend/command_card.db
+backend/*.egg-info/
+frontend/dist/
+frontend/node_modules/
+.vercel/
+__pycache__/
+*.py[cod]
+
+.vercel

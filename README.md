@@ -36,6 +36,14 @@ python seed.py
 uvicorn app.main:app --reload --port 8000
 ```
 
+### Import MCQ JSONL
+```bash
+cd backend
+python import_mcq_jsonl.py "C:\Users\megab\Downloads\ddia2_mcq_all_chapters_v2.jsonl"
+```
+
+The importer expects one JSON object per line. Each object should include `question`, `choices`, `correct_choice`, `answer`, and source metadata such as `id`, `chapter`, `section`, `difficulty`, and `tags`.
+
 ### Frontend
 ```bash
 cd frontend

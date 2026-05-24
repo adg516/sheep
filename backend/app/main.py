@@ -2,14 +2,16 @@ from datetime import datetime, timedelta
 
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 from sqlmodel import Session, select
 
 from app.adapters.llm import get_llm
 from app.core.config import settings
 from app.db import get_session, init_db
 from app.models import *
+from app.services.import_mcq import import_mcq_jsonl_text
 from app.services.planner import generate_plan
-from app.services.quiz import apply_review, select_today_questions
+from app.services.quiz import DDIA_CHAPTER_SETTING_KEY, apply_review, select_today_questions
 
 
 app = FastAPI(title="Command Card")
@@ -41,11 +43,50 @@ def require_password(x_app_password: str = Header(default="")):
 api_auth = [Depends(require_password)]
 
 
+class ImportJsonlPayload(BaseModel):
+    text: str
+    topic_name: str = "Chinese"
+    source_title: str = "Imported MCQ JSONL"
+    source_ref: str = "api-import"
+    update_existing: bool = True
+
+
+class DdiaChaptersPayload(BaseModel):
+    chapters: list[int] = []
+
+
+def available_ddia_chapters(session: Session) -> list[int]:
+    topic = session.exec(select(Topic).where(Topic.name == "DDIA")).first()
+    if not topic:
+        return []
+    questions = session.exec(
+        select(Question).where(Question.topic_id == topic.id, Question.active == True)
+    ).all()
+    chapters = set()
+    for question in questions:
+        raw_chapter = (question.metadata_json or {}).get("chapter")
+        try:
+            chapters.add(int(raw_chapter))
+        except (TypeError, ValueError):
+            continue
+    return sorted(chapters)
+
+
+def get_ddia_chapter_setting(session: Session) -> dict:
+    setting = session.get(AppSetting, DDIA_CHAPTER_SETTING_KEY)
+    selected = (setting.value or {}).get("chapters", []) if setting else []
+    return {
+        "chapters": sorted({int(chapter) for chapter in selected if str(chapter).isdigit()}),
+        "available_chapters": available_ddia_chapters(session),
+    }
+
+
 for name, model in [
     ("topics", Topic),
     ("weekly-targets", WeeklyTarget),
     ("sources", Source),
     ("questions", Question),
+    ("admin-items", AdminItem),
 ]:
 
     @app.get(f"/api/{name}", dependencies=api_auth)
@@ -87,6 +128,26 @@ def patch_weekly_target(item_id: int, patch: dict, session: Session = Depends(ge
     session.add(target)
     session.commit()
     return target
+
+
+@app.post("/api/admin-items", dependencies=api_auth)
+def create_admin_item(item: AdminItem, session: Session = Depends(get_session)):
+    session.add(item)
+    session.commit()
+    session.refresh(item)
+    return item
+
+
+@app.patch("/api/admin-items/{item_id}", dependencies=api_auth)
+def patch_admin_item(item_id: int, patch: dict, session: Session = Depends(get_session)):
+    item = session.get(AdminItem, item_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="Admin item not found")
+    for key, value in patch.items():
+        setattr(item, key, value)
+    session.add(item)
+    session.commit()
+    return item
 
 
 @app.get("/api/tasks", dependencies=api_auth)
@@ -225,6 +286,44 @@ def quiz_today(date: str, session: Session = Depends(get_session)):
     return select_today_questions(session, datetime.strptime(date, "%Y-%m-%d").date())
 
 
+@app.get("/api/settings/ddia-chapters", dependencies=api_auth)
+def ddia_chapter_settings(session: Session = Depends(get_session)):
+    return get_ddia_chapter_setting(session)
+
+
+@app.patch("/api/settings/ddia-chapters", dependencies=api_auth)
+def update_ddia_chapter_settings(payload: DdiaChaptersPayload, session: Session = Depends(get_session)):
+    available = set(available_ddia_chapters(session))
+    chapters = sorted({
+        int(chapter)
+        for chapter in payload.chapters
+        if int(chapter) > 0 and (not available or int(chapter) in available)
+    })
+    setting = session.get(AppSetting, DDIA_CHAPTER_SETTING_KEY) or AppSetting(key=DDIA_CHAPTER_SETTING_KEY)
+    setting.value = {"chapters": chapters}
+    setting.updated_at = datetime.utcnow()
+    session.add(setting)
+    session.commit()
+    return get_ddia_chapter_setting(session)
+
+
+@app.post("/api/import/mcq-jsonl", dependencies=api_auth)
+def import_mcq_jsonl(payload: ImportJsonlPayload, session: Session = Depends(get_session)):
+    try:
+        summary = import_mcq_jsonl_text(
+            session,
+            payload.text,
+            topic_name=payload.topic_name,
+            source_title=payload.source_title,
+            source_ref=payload.source_ref,
+            update_existing=payload.update_existing,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    session.commit()
+    return summary
+
+
 @app.post("/api/quiz/review", dependencies=api_auth)
 def quiz_review(payload: dict, session: Session = Depends(get_session)):
     question = session.get(Question, payload["question_id"])
@@ -242,6 +341,16 @@ def quiz_review(payload: dict, session: Session = Depends(get_session)):
 
 @app.post("/api/checkin", dependencies=api_auth)
 def checkin(checkin: DailyCheckIn, session: Session = Depends(get_session)):
+    existing = session.exec(select(DailyCheckIn).where(DailyCheckIn.date == checkin.date)).first()
+    if existing:
+        existing.sleep_quality = checkin.sleep_quality
+        existing.soreness = checkin.soreness
+        existing.work_pressure = checkin.work_pressure
+        existing.notes = checkin.notes
+        session.add(existing)
+        session.commit()
+        session.refresh(existing)
+        return existing
     session.add(checkin)
     session.commit()
     session.refresh(checkin)

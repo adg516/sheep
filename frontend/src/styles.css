@@ -458,6 +458,11 @@ main {
   gap: 0.4rem;
 }
 
+.quiz-summary {
+  display: grid;
+  gap: 0.8rem;
+}
+
 .compact-list {
   display: grid;
   gap: 0.55rem;
@@ -562,6 +567,60 @@ main {
   font-weight: 850;
 }
 
+.choice-list {
+  display: grid;
+  gap: 0.55rem;
+  margin: 0 0 0.9rem;
+}
+
+.choice {
+  display: grid;
+  grid-template-columns: 2.15rem minmax(0, 1fr);
+  align-items: center;
+  gap: 0.7rem;
+  width: 100%;
+  border: 1px solid #d5dfeb;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #172033;
+  padding: 0.72rem;
+  text-align: left;
+}
+
+.choice span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.15rem;
+  height: 2.15rem;
+  border-radius: 999px;
+  background: #eef3f8;
+  color: #42526a;
+  font-size: 0.82rem;
+  font-weight: 950;
+}
+
+.choice strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-weight: 800;
+}
+
+.choice.selected {
+  border-color: #2563eb;
+  background: #eff6ff;
+}
+
+.choice.correct {
+  border-color: #86efac;
+  background: #f0fdf4;
+}
+
+.choice.incorrect {
+  border-color: #fca5a5;
+  background: #fef2f2;
+}
+
 .answer-panel {
   display: grid;
   gap: 0.9rem;
@@ -570,6 +629,11 @@ main {
   background: #ffffff;
   margin-top: 1rem;
   padding: 1rem;
+}
+
+.source-ref {
+  color: #0f766e;
+  font-weight: 850;
 }
 
 .grade-grid {
@@ -657,6 +721,40 @@ main {
   gap: 0.2rem;
   border-bottom: 1px solid #e1e8f0;
   padding-bottom: 0.75rem;
+}
+
+.chapter-control {
+  display: grid;
+  gap: 0.7rem;
+  margin-top: 0.35rem;
+}
+
+.chapter-control.compact {
+  border-top: 1px solid #e1e8f0;
+  padding-top: 0.75rem;
+}
+
+.chapter-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.chapter-option {
+  min-height: 2rem;
+  border: 1px solid #d5dfeb;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #435066;
+  padding: 0.35rem 0.58rem;
+  font-size: 0.8rem;
+  font-weight: 850;
+}
+
+.chapter-option.selected {
+  border-color: #172033;
+  background: #172033;
+  color: #ffffff;
 }
 
 @media (max-width: 900px) {
