@@ -37,9 +37,25 @@ def ensure_question_import_columns():
         connection.execute(text("CREATE INDEX IF NOT EXISTS ix_question_external_id ON question (external_id)"))
 
 
+def ensure_task_columns():
+    columns = {
+        "sort_order": "INTEGER DEFAULT 0",
+    }
+    with engine.begin() as connection:
+        inspector = inspect(connection)
+        if "task" not in inspector.get_table_names():
+            return
+
+        existing = {column["name"] for column in inspector.get_columns("task")}
+        for name, column_type in columns.items():
+            if name not in existing:
+                connection.execute(text(f"ALTER TABLE task ADD COLUMN {name} {column_type}"))
+
+
 def init_db():
     SQLModel.metadata.create_all(engine)
     ensure_question_import_columns()
+    ensure_task_columns()
 
 
 def get_session():

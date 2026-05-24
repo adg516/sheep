@@ -42,6 +42,7 @@ type Task = {
   status: TaskStatus;
   scheduled_date?: string | null;
   completed_at?: string | null;
+  sort_order?: number;
   created_at?: string;
 };
 
@@ -100,6 +101,11 @@ type Plan = {
 type DdiaChapterSettings = {
   chapters: number[];
   available_chapters: number[];
+};
+
+type DailySettings = {
+  date: string;
+  work_task_target: number;
 };
 
 type CheckIn = {
@@ -412,6 +418,11 @@ function App() {
     available_chapters: [],
   });
   const [selectedDdiaChapters, setSelectedDdiaChapters] = useState<number[]>([]);
+  const [dailySettings, setDailySettings] = useState<DailySettings>({
+    date: today,
+    work_task_target: 1,
+  });
+  const [workTaskTarget, setWorkTaskTarget] = useState(1);
 
   const [setup, setSetup] = useState<SetupState>({
     sleep_quality: 'meh',
@@ -513,6 +524,7 @@ function App() {
         nextApprovedFacts,
         nextEvents,
         nextDdiaSettings,
+        nextDailySettings,
       ] = await Promise.all([
         requestJson<Plan | null>(`/api/plan/today?date=${today}`),
         requestJson<CheckIn | null>(`/api/checkin?date=${today}`),
@@ -525,6 +537,7 @@ function App() {
         requestJson<Fact[]>('/api/facts?status=approved'),
         requestJson<CalendarEvent[]>(`/api/calendar/events?date=${today}`),
         requestJson<DdiaChapterSettings>('/api/settings/ddia-chapters'),
+        requestJson<DailySettings>(`/api/settings/daily?date=${today}`),
       ]);
 
       setPlan(nextPlan);
@@ -539,6 +552,8 @@ function App() {
       setEvents(nextEvents);
       setDdiaSettings(nextDdiaSettings);
       setSelectedDdiaChapters(nextDdiaSettings.chapters || []);
+      setDailySettings(nextDailySettings);
+      setWorkTaskTarget(nextDailySettings.work_task_target);
       setError('');
       if (quizIndex >= nextQuiz.length) setQuizIndex(0);
     } catch (err) {
@@ -610,6 +625,21 @@ function App() {
     return task.description === 'work_task' || topicCategory(task) === 'professional' || (!task.topic_id && !taskIsAdmin(task));
   }
 
+  function orderedTasks(nextTasks: Task[]) {
+    return nextTasks
+      .slice()
+      .sort(
+        (a, b) =>
+          (a.sort_order || 0) - (b.sort_order || 0) ||
+          String(a.created_at || '').localeCompare(String(b.created_at || '')) ||
+          a.id - b.id,
+      );
+  }
+
+  function todayPlannedTasks(nextTasks: Task[]) {
+    return orderedTasks(nextTasks.filter((task) => task.scheduled_date === today && task.status === 'planned'));
+  }
+
   function toggleDdiaChapter(chapter: number) {
     setSelectedDdiaChapters((current) =>
       current.includes(chapter)
@@ -628,6 +658,25 @@ function App() {
       setDdiaSettings(next);
       setSelectedDdiaChapters(next.chapters || []);
       await loadData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function saveWorkTaskTarget(nextTarget: number) {
+    const clamped = Math.max(0, Math.min(6, nextTarget));
+    setWorkTaskTarget(clamped);
+    setSaving(true);
+    try {
+      const next = await requestJson<DailySettings>('/api/settings/daily', {
+        method: 'PATCH',
+        body: { date: today, work_task_target: clamped },
+      });
+      setDailySettings(next);
+      setWorkTaskTarget(next.work_task_target);
+      setError('');
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -698,6 +747,7 @@ function App() {
   async function addWorkTask() {
     const title = workTaskTitle.trim();
     if (!title) return;
+    const existingTodayWork = todayPlannedTasks(workTasks);
 
     setSaving(true);
     try {
@@ -710,6 +760,7 @@ function App() {
           duration_minutes: 45,
           status: 'planned',
           scheduled_date: today,
+          sort_order: (existingTodayWork.length + 1) * 1000,
         },
       });
       setWorkTaskTitle('');
@@ -831,6 +882,34 @@ function App() {
     setAnswerRevealed(false);
     setQuizFeedback('');
     setQuizIndex((current) => Math.min(current + 1, quiz.length));
+  }
+
+  async function moveTask(task: Task, direction: 'up' | 'down', scopeTasks: Task[]) {
+    const sorted = orderedTasks(scopeTasks);
+    const index = sorted.findIndex((item) => item.id === task.id);
+    const nextIndex = direction === 'up' ? index - 1 : index + 1;
+    if (index < 0 || nextIndex < 0 || nextIndex >= sorted.length) return;
+
+    const nextOrder = sorted.slice();
+    const [moved] = nextOrder.splice(index, 1);
+    nextOrder.splice(nextIndex, 0, moved);
+
+    setSaving(true);
+    try {
+      await Promise.all(
+        nextOrder.map((item, itemIndex) =>
+          requestJson<Task>(`/api/tasks/${item.id}`, {
+            method: 'PATCH',
+            body: { sort_order: (itemIndex + 1) * 1000 },
+          }),
+        ),
+      );
+      await loadData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function extractFacts() {
@@ -978,6 +1057,10 @@ function App() {
   const workTasks = tasks.filter(taskIsWork);
   const adminTasks = tasks.filter(taskIsAdmin);
   const trainingTasks = tasks.filter(taskIsTraining);
+  const todayWorkTasks = todayPlannedTasks(workTasks);
+  const commandWorkTasks = todayWorkTasks.slice(0, workTaskTarget);
+  const todayAdminTasks = todayPlannedTasks(adminTasks);
+  const todayTrainingEvents = events.filter((event) => event.tags?.includes('training') || /bjj|lifting|train/i.test(event.title));
   const missedOrRecent = tasks
     .filter((task) => task.status === 'missed' || task.status === 'skipped' || task.scheduled_date === today)
     .slice()
@@ -1041,16 +1124,51 @@ function App() {
                 </div>
               </div>
 
-              <div className="button-row">
-                <Button variant="primary" onClick={() => markMainFocus('done')} disabled={saving}>
-                  Done
-                </Button>
-                <Button onClick={() => markMainFocus('missed')} disabled={saving}>
-                  Missed
-                </Button>
-                <Button variant="ghost" onClick={() => markMainFocus('skipped')} disabled={saving}>
-                  Skip
-                </Button>
+              <div className="commitment-grid">
+                <div className="commitment-panel">
+                  <div className="commitment-top">
+                    <span className="mini-label">Work commitment</span>
+                    <WorkTargetControl
+                      value={workTaskTarget}
+                      onChange={saveWorkTaskTarget}
+                      disabled={saving}
+                    />
+                  </div>
+                  <CommandTaskList
+                    tasks={commandWorkTasks}
+                    empty="No work tasks selected yet."
+                    topicName={topicName}
+                  />
+                  {todayWorkTasks.length > workTaskTarget ? (
+                    <p className="muted">{todayWorkTasks.length - workTaskTarget} lower-priority work task left below.</p>
+                  ) : null}
+                </div>
+
+                <div className="commitment-panel">
+                  <span className="mini-label">Admin / support</span>
+                  <CommandTaskList
+                    tasks={todayAdminTasks.slice(0, 3)}
+                    empty={plan.admin?.hint || 'No admin tasks picked yet.'}
+                    topicName={topicName}
+                  />
+                </div>
+
+                <div className="commitment-panel">
+                  <span className="mini-label">Training / review</span>
+                  <ul className="command-list">
+                    {todayTrainingEvents.length ? (
+                      todayTrainingEvents.map((event) => (
+                        <li key={event.id}>{event.title}</li>
+                      ))
+                    ) : (
+                      <li>{plan.training?.hint || 'No training logged today.'}</li>
+                    )}
+                    <li>
+                      Quiz: {quiz.length || plan.quiz?.count || 0} cards
+                      {quizMix.length ? ` (${quizMix.map(([name, count]) => `${name} ${count}`).join(', ')})` : ''}
+                    </li>
+                  </ul>
+                </div>
               </div>
             </>
           ) : (
@@ -1124,9 +1242,19 @@ function App() {
           </Card>
 
           <Card>
-            <SectionHeader eyebrow="Work" title="One task that matters" />
+            <SectionHeader
+              eyebrow="Work"
+              title="Work tasks"
+              action={
+                <WorkTargetControl
+                  value={workTaskTarget}
+                  onChange={saveWorkTaskTarget}
+                  disabled={saving}
+                />
+              }
+            />
             <label className="field-label" htmlFor="work-task">
-              What is the one work task that matters today?
+              Add a concrete work task for today
             </label>
             <div className="inline-form">
               <input
@@ -1142,7 +1270,13 @@ function App() {
                 Add
               </Button>
             </div>
-            <TaskPreviewList tasks={workTasks.filter((task) => task.scheduled_date === today).slice(0, 4)} topicName={topicName} onStatus={updateTaskStatus} />
+            <TaskPreviewList
+              tasks={todayWorkTasks}
+              topicName={topicName}
+              selectedCount={workTaskTarget}
+              mode="priority"
+              onMove={(task, direction) => moveTask(task, direction, todayWorkTasks)}
+            />
           </Card>
         </div>
 
@@ -1209,7 +1343,13 @@ function App() {
                 </button>
               ))}
             </div>
-            <TaskPreviewList tasks={adminTasks.filter((task) => task.status === 'planned').slice(0, 4)} topicName={topicName} onStatus={updateTaskStatus} />
+            <TaskPreviewList
+              tasks={todayAdminTasks.slice(0, 4)}
+              topicName={topicName}
+              selectedCount={0}
+              mode="status"
+              onStatus={updateTaskStatus}
+            />
           </Card>
         </div>
       </div>
@@ -1369,7 +1509,17 @@ function App() {
       <div className="page-stack">
         <div className="two-column">
           <Card>
-            <SectionHeader eyebrow="Work" title="Work tasks" />
+            <SectionHeader
+              eyebrow="Work"
+              title="Work tasks"
+              action={
+                <WorkTargetControl
+                  value={workTaskTarget}
+                  onChange={saveWorkTaskTarget}
+                  disabled={saving}
+                />
+              }
+            />
             <div className="inline-form">
               <input
                 value={workTaskTitle}
@@ -1380,7 +1530,14 @@ function App() {
                 Add
               </Button>
             </div>
-            <TaskList tasks={workTasks} topicName={topicName} onStatus={updateTaskStatus} empty="No work tasks yet." />
+            <TaskList
+              tasks={orderedTasks(workTasks)}
+              topicName={topicName}
+              selectedCount={workTaskTarget}
+              mode="priority"
+              onMove={(task, direction) => moveTask(task, direction, orderedTasks(workTasks))}
+              empty="No work tasks yet."
+            />
           </Card>
 
           <Card>
@@ -1396,8 +1553,10 @@ function App() {
               </Button>
             </div>
             <TaskList
-              tasks={adminTasks}
+              tasks={orderedTasks(adminTasks)}
               topicName={topicName}
+              selectedCount={0}
+              mode="status"
               onStatus={updateTaskStatus}
               empty="No admin items yet. Add bills, laundry, texts, or email."
             />
@@ -1419,7 +1578,13 @@ function App() {
                   </div>
                 ))}
                 {trainingTasks.map((task) => (
-                  <TaskRow key={task.id} task={task} topicName={topicName} onStatus={updateTaskStatus} />
+                  <TaskRow
+                    key={task.id}
+                    task={task}
+                    topicName={topicName}
+                    mode="status"
+                    onStatus={updateTaskStatus}
+                  />
                 ))}
               </div>
             ) : (
@@ -1432,6 +1597,8 @@ function App() {
             <TaskList
               tasks={missedOrRecent}
               topicName={topicName}
+              selectedCount={0}
+              mode="status"
               onStatus={updateTaskStatus}
               empty="No recent or missed tasks."
             />
@@ -1707,20 +1874,81 @@ function DdiaChapterSelector({
   );
 }
 
+function WorkTargetControl({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: number;
+  onChange: (value: number) => void;
+  disabled: boolean;
+}) {
+  return (
+    <div className="stepper" aria-label="Work task target">
+      <button type="button" onClick={() => onChange(value - 1)} disabled={disabled || value <= 0}>
+        -
+      </button>
+      <span>{value} work</span>
+      <button type="button" onClick={() => onChange(value + 1)} disabled={disabled || value >= 6}>
+        +
+      </button>
+    </div>
+  );
+}
+
+function CommandTaskList({
+  tasks,
+  empty,
+  topicName,
+}: {
+  tasks: Task[];
+  empty: string;
+  topicName: (topicId?: number | null) => string;
+}) {
+  if (!tasks.length) return <p className="muted">{empty}</p>;
+  return (
+    <ol className="command-list">
+      {tasks.map((task) => (
+        <li key={task.id}>
+          <strong>{task.title}</strong>
+          <span>{topicName(task.topic_id)}</span>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
 function TaskPreviewList({
   tasks,
   topicName,
+  selectedCount,
+  mode,
   onStatus,
+  onMove,
 }: {
   tasks: Task[];
   topicName: (topicId?: number | null) => string;
-  onStatus: (task: Task, status: TaskStatus) => void;
+  selectedCount: number;
+  mode: 'status' | 'priority';
+  onStatus?: (task: Task, status: TaskStatus) => void;
+  onMove?: (task: Task, direction: 'up' | 'down') => void;
 }) {
   if (!tasks.length) return <EmptyState>No tasks yet.</EmptyState>;
   return (
     <div className="compact-list">
       {tasks.map((task, index) => (
-        <TaskRow key={task.id} task={task} topicName={topicName} onStatus={onStatus} compact priority={index === 0} />
+        <TaskRow
+          key={task.id}
+          task={task}
+          topicName={topicName}
+          compact
+          selected={mode === 'priority' && index < selectedCount}
+          mode={mode}
+          onStatus={onStatus}
+          onMove={onMove}
+          canMoveUp={index > 0}
+          canMoveDown={index < tasks.length - 1}
+        />
       ))}
     </div>
   );
@@ -1729,19 +1957,35 @@ function TaskPreviewList({
 function TaskList({
   tasks,
   topicName,
+  selectedCount,
+  mode,
   onStatus,
+  onMove,
   empty,
 }: {
   tasks: Task[];
   topicName: (topicId?: number | null) => string;
-  onStatus: (task: Task, status: TaskStatus) => void;
+  selectedCount: number;
+  mode: 'status' | 'priority';
+  onStatus?: (task: Task, status: TaskStatus) => void;
+  onMove?: (task: Task, direction: 'up' | 'down') => void;
   empty: string;
 }) {
   if (!tasks.length) return <EmptyState>{empty}</EmptyState>;
   return (
     <div className="compact-list">
-      {tasks.map((task) => (
-        <TaskRow key={task.id} task={task} topicName={topicName} onStatus={onStatus} />
+      {tasks.map((task, index) => (
+        <TaskRow
+          key={task.id}
+          task={task}
+          topicName={topicName}
+          selected={mode === 'priority' && index < selectedCount}
+          mode={mode}
+          onStatus={onStatus}
+          onMove={onMove}
+          canMoveUp={index > 0}
+          canMoveDown={index < tasks.length - 1}
+        />
       ))}
     </div>
   );
@@ -1750,18 +1994,26 @@ function TaskList({
 function TaskRow({
   task,
   topicName,
+  mode,
   onStatus,
+  onMove,
   compact = false,
-  priority = false,
+  selected = false,
+  canMoveUp = false,
+  canMoveDown = false,
 }: {
   task: Task;
   topicName: (topicId?: number | null) => string;
-  onStatus: (task: Task, status: TaskStatus) => void;
+  mode: 'status' | 'priority';
+  onStatus?: (task: Task, status: TaskStatus) => void;
+  onMove?: (task: Task, direction: 'up' | 'down') => void;
   compact?: boolean;
-  priority?: boolean;
+  selected?: boolean;
+  canMoveUp?: boolean;
+  canMoveDown?: boolean;
 }) {
   return (
-    <div className={priority ? 'task-row priority' : 'task-row'}>
+    <div className={selected ? 'task-row selected-for-card' : 'task-row'}>
       <div className="task-main">
         <strong>{task.title}</strong>
         <span>
@@ -1769,15 +2021,25 @@ function TaskRow({
           {task.scheduled_date ? ` / ${task.scheduled_date}` : ''}
         </span>
       </div>
-      {!compact || task.status === 'planned' ? (
+      {mode === 'priority' ? (
+        <div className="priority-actions" aria-label="Task priority controls">
+          {selected ? <Badge tone="accent">On card</Badge> : null}
+          <button type="button" onClick={() => onMove?.(task, 'up')} disabled={!canMoveUp} aria-label="Move task up">
+            ↑
+          </button>
+          <button type="button" onClick={() => onMove?.(task, 'down')} disabled={!canMoveDown} aria-label="Move task down">
+            ↓
+          </button>
+        </div>
+      ) : !compact || task.status === 'planned' ? (
         <div className="task-actions">
-          <Button size="sm" onClick={() => onStatus(task, 'done')} disabled={task.status === 'done'}>
+          <Button size="sm" onClick={() => onStatus?.(task, 'done')} disabled={task.status === 'done'}>
             Done
           </Button>
-          <Button size="sm" onClick={() => onStatus(task, 'missed')} disabled={task.status === 'missed'}>
+          <Button size="sm" onClick={() => onStatus?.(task, 'missed')} disabled={task.status === 'missed'}>
             Missed
           </Button>
-          <Button size="sm" variant="ghost" onClick={() => onStatus(task, 'skipped')} disabled={task.status === 'skipped'}>
+          <Button size="sm" variant="ghost" onClick={() => onStatus?.(task, 'skipped')} disabled={task.status === 'skipped'}>
             Skip
           </Button>
         </div>

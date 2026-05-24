@@ -55,6 +55,11 @@ class DdiaChaptersPayload(BaseModel):
     chapters: list[int] = []
 
 
+class DailySettingsPayload(BaseModel):
+    date: str
+    work_task_target: int = 1
+
+
 def available_ddia_chapters(session: Session) -> list[int]:
     topic = session.exec(select(Topic).where(Topic.name == "DDIA")).first()
     if not topic:
@@ -87,6 +92,19 @@ def coerce_ymd_date(value) -> date_type:
     if isinstance(value, str):
         return datetime.strptime(value, "%Y-%m-%d").date()
     raise ValueError("Expected date in YYYY-MM-DD format")
+
+
+def daily_settings_key(on_date: date_type) -> str:
+    return f"daily_settings:{on_date.isoformat()}"
+
+
+def daily_settings_payload(session: Session, on_date: date_type) -> dict:
+    setting = session.get(AppSetting, daily_settings_key(on_date))
+    value = setting.value if setting else {}
+    return {
+        "date": on_date.isoformat(),
+        "work_task_target": max(0, min(6, int(value.get("work_task_target", 1)))),
+    }
 
 
 for name, model in [
@@ -313,6 +331,32 @@ def update_ddia_chapter_settings(payload: DdiaChaptersPayload, session: Session 
     session.add(setting)
     session.commit()
     return get_ddia_chapter_setting(session)
+
+
+@app.get("/api/settings/daily", dependencies=api_auth)
+def daily_settings(date: str, session: Session = Depends(get_session)):
+    try:
+        settings_date = coerce_ymd_date(date)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return daily_settings_payload(session, settings_date)
+
+
+@app.patch("/api/settings/daily", dependencies=api_auth)
+def update_daily_settings(payload: DailySettingsPayload, session: Session = Depends(get_session)):
+    try:
+        settings_date = coerce_ymd_date(payload.date)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    target = max(0, min(6, int(payload.work_task_target)))
+    setting = session.get(AppSetting, daily_settings_key(settings_date)) or AppSetting(
+        key=daily_settings_key(settings_date)
+    )
+    setting.value = {"work_task_target": target}
+    setting.updated_at = datetime.utcnow()
+    session.add(setting)
+    session.commit()
+    return daily_settings_payload(session, settings_date)
 
 
 @app.post("/api/import/mcq-jsonl", dependencies=api_auth)

@@ -347,11 +347,55 @@ main {
 }
 
 .command-grid p,
+.commitment-panel p,
 .answer-panel p,
 .fact-card p,
 .target-card p {
   margin: 0;
   line-height: 1.45;
+}
+
+.commitment-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.8rem;
+}
+
+.commitment-panel {
+  display: grid;
+  gap: 0.7rem;
+  border: 1px solid rgba(159, 176, 199, 0.34);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.76);
+  padding: 0.85rem;
+}
+
+.commitment-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+
+.command-list {
+  display: grid;
+  gap: 0.45rem;
+  margin: 0;
+  padding-left: 1.25rem;
+}
+
+.command-list li {
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.command-list strong {
+  display: block;
+}
+
+.command-list span {
+  color: #64748b;
+  font-size: 0.82rem;
 }
 
 .command-footer {
@@ -401,6 +445,40 @@ main {
   background: #ffffff;
   color: #172033;
   box-shadow: 0 4px 12px rgba(17, 24, 39, 0.08);
+}
+
+.stepper {
+  display: inline-grid;
+  grid-template-columns: 2rem auto 2rem;
+  align-items: center;
+  gap: 0.25rem;
+  width: fit-content;
+  border: 1px solid #d5dfeb;
+  border-radius: 999px;
+  background: #ffffff;
+  padding: 0.18rem;
+}
+
+.stepper button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border: 0;
+  border-radius: 999px;
+  background: #eef3f8;
+  color: #172033;
+  font-weight: 950;
+}
+
+.stepper span {
+  min-width: 3.8rem;
+  color: #42526a;
+  font-size: 0.78rem;
+  font-weight: 900;
+  text-align: center;
+  white-space: nowrap;
 }
 
 .inline-form {
@@ -480,9 +558,9 @@ main {
   padding: 0.7rem;
 }
 
-.task-row.priority {
-  border-color: rgba(20, 184, 166, 0.45);
-  background: #f0fdfa;
+.task-row.selected-for-card {
+  border-color: rgba(37, 99, 235, 0.35);
+  background: #eff6ff;
 }
 
 .task-main,
@@ -502,6 +580,28 @@ main {
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 0.35rem;
+}
+
+.priority-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.priority-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border: 1px solid #d5dfeb;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #172033;
+  font-size: 1rem;
+  font-weight: 950;
 }
 
 .empty {
@@ -760,6 +860,7 @@ main {
 @media (max-width: 900px) {
   .two-column,
   .command-grid,
+  .commitment-grid,
   .target-grid,
   .fact-grid {
     grid-template-columns: 1fr;
@@ -791,6 +892,7 @@ main {
 
   .section-header,
   .command-topline,
+  .commitment-top,
   .metric-row,
   .target-meta {
     display: grid;
@@ -826,11 +928,13 @@ main {
 
   .button-row,
   .task-actions,
+  .priority-actions,
   .target-meta > div {
     width: 100%;
   }
 
   .task-actions,
+  .priority-actions,
   .target-meta > div {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
