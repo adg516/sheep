@@ -31,7 +31,7 @@ def score_topic(session:Session, topic:Topic, on_date:date, day_type:str)->float
 def generate_plan(session:Session, on_date:date):
     events=session.exec(select(CalendarEvent).where(CalendarEvent.start_at>=datetime.combine(on_date, datetime.min.time()), CalendarEvent.start_at<datetime.combine(on_date+timedelta(days=1), datetime.min.time()))).all()
     day_type=classify_day(events)
-    checkin=session.exec(select(DailyCheckIn).where(DailyCheckIn.date==on_date)).first()
+    checkin=session.exec(select(DailyCheckIn).where(DailyCheckIn.date==on_date).order_by(DailyCheckIn.id.desc())).first()
     topics=session.exec(select(Topic).where(Topic.active==True)).all()
     ranked=sorted([(t,score_topic(session,t,on_date,day_type)) for t in topics], key=lambda x:x[1], reverse=True)
     main={"topic": ranked[0][0].name, "score": ranked[0][1]} if ranked else {}

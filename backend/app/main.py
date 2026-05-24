@@ -248,6 +248,16 @@ def checkin(checkin: DailyCheckIn, session: Session = Depends(get_session)):
     return checkin
 
 
+@app.get("/api/checkin", dependencies=api_auth)
+def get_checkin(date: str, session: Session = Depends(get_session)):
+    checkin_date = datetime.strptime(date, "%Y-%m-%d").date()
+    return session.exec(
+        select(DailyCheckIn)
+        .where(DailyCheckIn.date == checkin_date)
+        .order_by(DailyCheckIn.id.desc())
+    ).first()
+
+
 @app.get("/api/plan/today", dependencies=api_auth)
 def today_plan(date: str, session: Session = Depends(get_session)):
     plan_date = datetime.strptime(date, "%Y-%m-%d").date()
