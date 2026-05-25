@@ -313,6 +313,69 @@ main {
   gap: 1.25rem;
 }
 
+.daily-order-header p {
+  margin: 0;
+  color: #435066;
+  line-height: 1.45;
+}
+
+.daily-order-list {
+  display: grid;
+  gap: 0.55rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: daily-order;
+}
+
+.daily-order-item {
+  counter-increment: daily-order;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 0.75rem;
+  border: 1px solid rgba(159, 176, 199, 0.34);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.78);
+  padding: 0.78rem 0.85rem;
+}
+
+.order-number::before {
+  content: counter(daily-order);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.8rem;
+  height: 1.8rem;
+  border-radius: 999px;
+  background: #172033;
+  color: #ffffff;
+  font-size: 0.82rem;
+  font-weight: 900;
+}
+
+.daily-order-item strong,
+.daily-order-item span {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.daily-order-item strong {
+  color: #101827;
+}
+
+.daily-order-item span {
+  color: #64748b;
+  font-size: 0.86rem;
+}
+
+.avoid-line {
+  margin: 0;
+  color: #8a4700;
+  font-size: 0.9rem;
+  font-weight: 800;
+}
+
 .main-focus {
   max-width: 760px;
 }
@@ -780,6 +843,12 @@ main {
 .notes-grid {
   display: grid;
   grid-template-columns: minmax(0, 0.75fr) minmax(0, 1.25fr);
+  gap: 0.75rem;
+  margin-bottom: 0.9rem;
+}
+
+.form-grid {
+  display: grid;
   gap: 0.75rem;
   margin-bottom: 0.9rem;
 }

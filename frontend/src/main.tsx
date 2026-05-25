@@ -11,7 +11,7 @@ const isProductionFrontend =
 const defaultApi = isProductionFrontend ? productionApi : env.VITE_API_URL || productionApi;
 const defaultPassword = env.VITE_APP_PASSWORD || '';
 
-type Tab = 'Today' | 'Quiz' | 'Tasks' | 'Targets' | 'Notes' | 'Settings';
+type Tab = 'Today' | 'Quiz' | 'Tasks' | 'Targets' | 'Settings';
 type Grade = 'again' | 'hard' | 'good' | 'easy';
 type TaskStatus = 'planned' | 'done' | 'missed' | 'skipped';
 
@@ -131,6 +131,8 @@ type SetupState = {
   soreness: CheckIn['soreness'];
   work_pressure: CheckIn['work_pressure'];
   training: 'none' | 'bjj' | 'lifting' | 'both' | 'other';
+  chinese_class: 'no' | 'yes';
+  social_commitment: 'no' | 'yes';
 };
 
 type ButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
@@ -138,7 +140,8 @@ type ButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
   size?: 'sm' | 'md';
 };
 
-const tabs: Tab[] = ['Today', 'Quiz', 'Tasks', 'Targets', 'Notes', 'Settings'];
+const tabs: Tab[] = ['Today', 'Quiz', 'Tasks', 'Targets', 'Settings'];
+const targetTypes = ['blocks', 'minutes', 'questions', 'sessions', 'binary'];
 const categoryOrder = [
   { key: 'professional', title: 'Professional' },
   { key: 'language', title: 'Study' },
@@ -168,6 +171,10 @@ function formatDate(dateString: string) {
     month: 'short',
     day: 'numeric',
   }).format(new Date(`${dateString}T12:00:00`));
+}
+
+function formatTime(dateString: string) {
+  return new Date(dateString).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 }
 
 function titleCase(value?: string) {
@@ -429,9 +436,17 @@ function App() {
     soreness: 'medium',
     work_pressure: 'medium',
     training: 'none',
+    chinese_class: 'no',
+    social_commitment: 'no',
   });
   const [workTaskTitle, setWorkTaskTitle] = useState('');
   const [adminTaskTitle, setAdminTaskTitle] = useState('');
+  const [newTopicName, setNewTopicName] = useState('');
+  const [newTopicCategory, setNewTopicCategory] = useState('professional');
+  const [newTopicPriority, setNewTopicPriority] = useState(3);
+  const [targetTopicId, setTargetTopicId] = useState<number | ''>('');
+  const [targetType, setTargetType] = useState('blocks');
+  const [targetValue, setTargetValue] = useState(1);
   const [noteTopicId, setNoteTopicId] = useState<number | ''>('');
   const [noteTitle, setNoteTitle] = useState('');
   const [noteText, setNoteText] = useState('');
@@ -579,6 +594,8 @@ function App() {
 
   useEffect(() => {
     const titles = events.map((event) => event.title.toLowerCase()).join(' ');
+    const hasChinese = titles.includes('chinese');
+    const hasSocial = /social|friends|dinner|party|hangout|date/.test(titles);
     if (titles.includes('bjj') && titles.includes('lifting')) {
       setSetup((current) => ({ ...current, training: 'both' }));
     } else if (titles.includes('bjj')) {
@@ -587,6 +604,13 @@ function App() {
       setSetup((current) => ({ ...current, training: 'lifting' }));
     } else if (titles.includes('train')) {
       setSetup((current) => ({ ...current, training: 'other' }));
+    }
+    if (hasChinese || hasSocial) {
+      setSetup((current) => ({
+        ...current,
+        chinese_class: hasChinese ? 'yes' : current.chinese_class,
+        social_commitment: hasSocial ? 'yes' : current.social_commitment,
+      }));
     }
   }, [events.length]);
 
@@ -697,6 +721,46 @@ function App() {
     }
   }
 
+  async function syncSetupEvent({
+    enabled,
+    title,
+    start,
+    end,
+    tags,
+  }: {
+    enabled: boolean;
+    title: string;
+    start: string;
+    end: string;
+    tags: string[];
+  }) {
+    const normalized = title.toLowerCase();
+    const matching = events.filter(
+      (event) => event.source === 'manual' && event.title.toLowerCase() === normalized,
+    );
+
+    if (enabled) {
+      if (matching.length) return;
+      await requestJson<CalendarEvent>('/api/calendar/events/manual', {
+        method: 'POST',
+        body: {
+          title,
+          start_at: `${today}T${start}`,
+          end_at: `${today}T${end}`,
+          source: 'manual',
+          tags,
+        },
+      });
+      return;
+    }
+
+    await Promise.all(
+      matching.map((event) =>
+        requestJson<{ ok: boolean }>(`/api/calendar/events/${event.id}`, { method: 'DELETE' }),
+      ),
+    );
+  }
+
   async function saveDailySetup() {
     setSaving(true);
     try {
@@ -735,6 +799,21 @@ function App() {
           });
         }
       }
+
+      await syncSetupEvent({
+        enabled: setup.chinese_class === 'yes',
+        title: 'Chinese class',
+        start: '19:00:00',
+        end: '20:00:00',
+        tags: ['study'],
+      });
+      await syncSetupEvent({
+        enabled: setup.social_commitment === 'yes',
+        title: 'Social commitment',
+        start: '19:30:00',
+        end: '21:30:00',
+        tags: ['social'],
+      });
 
       await generatePlan();
     } catch (err) {
@@ -1031,6 +1110,68 @@ function App() {
     }
   }
 
+  async function createTopicFromForm() {
+    const name = newTopicName.trim();
+    if (!name) return;
+
+    setSaving(true);
+    try {
+      const topic = await requestJson<Topic>('/api/topics', {
+        method: 'POST',
+        body: {
+          name,
+          category: newTopicCategory,
+          priority_weight: Math.max(1, Math.min(5, Number(newTopicPriority) || 3)),
+          active: true,
+        },
+      });
+      setNewTopicName('');
+      setTargetTopicId(topic.id);
+      await loadData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function saveTargetFromForm() {
+    const topicId = Number(targetTopicId || topics[0]?.id);
+    const value = Math.max(0, Number(targetValue) || 0);
+    if (!topicId || !targetType) return;
+
+    setSaving(true);
+    try {
+      const existing = targets.find((item) => item.topic_id === topicId);
+      if (existing) {
+        await requestJson<WeeklyTarget>(`/api/weekly-targets/${existing.id}`, {
+          method: 'PATCH',
+          body: {
+            target_type: targetType,
+            target_value: value,
+            active: true,
+          },
+        });
+      } else {
+        await requestJson<WeeklyTarget>('/api/weekly-targets', {
+          method: 'POST',
+          body: {
+            topic_id: topicId,
+            target_type: targetType,
+            target_value: value,
+            current_period_start: weekStart(today),
+            active: true,
+          },
+        });
+      }
+      await loadData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSaving(false);
+    }
+  }
+
   function saveSettings() {
     const nextApiBase =
       isProductionFrontend && !isLocalApiUrl(settingsDraft.apiBase)
@@ -1061,6 +1202,67 @@ function App() {
   const commandWorkTasks = todayWorkTasks.slice(0, workTaskTarget);
   const todayAdminTasks = todayPlannedTasks(adminTasks);
   const todayTrainingEvents = events.filter((event) => event.tags?.includes('training') || /bjj|lifting|train/i.test(event.title));
+  const todayChineseEvents = events.filter((event) => /chinese/i.test(event.title));
+  const todaySocialEvents = events.filter((event) => event.tags?.includes('social') || /social|friends|dinner|party|hangout|date/i.test(event.title));
+  const quizTargetText = quizMix.length
+    ? quizMix.map(([name, count]) => `${name} ${count}`).join(', ')
+    : 'DDIA 10, Chinese 10';
+  const focusCategory = mainTopic?.category || '';
+  const focusCoveredByWork = commandWorkTasks.some(
+    (task) => topicName(task.topic_id).toLowerCase() === plan?.main_focus?.topic?.toLowerCase(),
+  );
+  const focusIsStandalone =
+    Boolean(plan?.main_focus?.topic) &&
+    !focusCoveredByWork &&
+    !['admin', 'training', 'health', 'social'].includes(focusCategory);
+  const commandItems = [
+    ...commandWorkTasks.map((task) => ({
+      id: `work-${task.id}`,
+      title: task.title,
+      detail: 'Work',
+      kind: 'work',
+    })),
+    ...(focusIsStandalone && plan?.main_focus?.topic
+      ? [
+          {
+            id: 'focus',
+            title: plan.main_focus.topic,
+            detail: plan.main_focus.suggestion || `${plan.main_focus.minutes || 30} min`,
+            kind: 'focus',
+          },
+        ]
+      : []),
+    {
+      id: 'quiz',
+      title: 'Daily quiz',
+      detail: quizTargetText,
+      kind: 'quiz',
+    },
+    ...todayChineseEvents.map((event) => ({
+      id: `chinese-${event.id}`,
+      title: event.title,
+      detail: formatTime(event.start_at),
+      kind: 'study',
+    })),
+    ...todayAdminTasks.slice(0, 4).map((task) => ({
+      id: `admin-${task.id}`,
+      title: task.title,
+      detail: 'Admin',
+      kind: 'admin',
+    })),
+    ...todayTrainingEvents.map((event) => ({
+      id: `training-${event.id}`,
+      title: event.title,
+      detail: formatTime(event.start_at),
+      kind: 'training',
+    })),
+    ...todaySocialEvents.map((event) => ({
+      id: `social-${event.id}`,
+      title: event.title,
+      detail: formatTime(event.start_at),
+      kind: 'social',
+    })),
+  ];
   const missedOrRecent = tasks
     .filter((task) => task.status === 'missed' || task.status === 'skipped' || task.scheduled_date === today)
     .slice()
@@ -1094,86 +1296,28 @@ function App() {
             </div>
           </div>
 
-          {plan?.main_focus?.topic ? (
-            <>
-              <div className="main-focus">
-                <span className="focus-label">Focus today</span>
-                <h1>{plan.main_focus.topic}</h1>
-                <p>
-                  One serious win is enough. Score {Math.round(plan.main_focus.score || 0)} from priority,
-                  staleness, weakness, missed work, and day shape.
-                </p>
-              </div>
+          <div className="daily-order-header">
+            <span className="focus-label">Do in order</span>
+            <p>Mental work first. Admin, lifting, and social stuff later.</p>
+          </div>
 
-              <div className="command-grid">
-                <div>
-                  <span className="mini-label">Secondary</span>
-                  <p>{plan.secondary_focus?.topic || 'None. Keep the day smaller.'}</p>
-                </div>
-                <div>
-                  <span className="mini-label">Training</span>
-                  <p>{plan.training?.hint || 'No training hint yet.'}</p>
-                </div>
-                <div>
-                  <span className="mini-label">Minimum viable day</span>
-                  <p>{plan.admin?.hint || 'One useful admin task if energy is low.'}</p>
-                </div>
-                <div>
-                  <span className="mini-label">Avoid</span>
-                  <p>{plan.avoid?.length ? plan.avoid.join(', ') : 'No special avoid list.'}</p>
-                </div>
-              </div>
-
-              <div className="commitment-grid">
-                <div className="commitment-panel">
-                  <div className="commitment-top">
-                    <span className="mini-label">Work commitment</span>
-                    <WorkTargetControl
-                      value={workTaskTarget}
-                      onChange={saveWorkTaskTarget}
-                      disabled={saving}
-                    />
+          {commandItems.length ? (
+            <ol className="daily-order-list">
+              {commandItems.map((item) => (
+                <li key={item.id} className={`daily-order-item item-${item.kind}`}>
+                  <span className="order-number" />
+                  <div>
+                    <strong>{item.title}</strong>
+                    <span>{item.detail}</span>
                   </div>
-                  <CommandTaskList
-                    tasks={commandWorkTasks}
-                    empty="No work tasks selected yet."
-                    topicName={topicName}
-                  />
-                  {todayWorkTasks.length > workTaskTarget ? (
-                    <p className="muted">{todayWorkTasks.length - workTaskTarget} lower-priority work task left below.</p>
-                  ) : null}
-                </div>
-
-                <div className="commitment-panel">
-                  <span className="mini-label">Admin / support</span>
-                  <CommandTaskList
-                    tasks={todayAdminTasks.slice(0, 3)}
-                    empty={plan.admin?.hint || 'No admin tasks picked yet.'}
-                    topicName={topicName}
-                  />
-                </div>
-
-                <div className="commitment-panel">
-                  <span className="mini-label">Training / review</span>
-                  <ul className="command-list">
-                    {todayTrainingEvents.length ? (
-                      todayTrainingEvents.map((event) => (
-                        <li key={event.id}>{event.title}</li>
-                      ))
-                    ) : (
-                      <li>{plan.training?.hint || 'No training logged today.'}</li>
-                    )}
-                    <li>
-                      Quiz: {quiz.length || plan.quiz?.count || 0} cards
-                      {quizMix.length ? ` (${quizMix.map(([name, count]) => `${name} ${count}`).join(', ')})` : ''}
-                    </li>
-                  </ul>
-                </div>
-              </div>
-            </>
+                </li>
+              ))}
+            </ol>
           ) : (
-            <EmptyState>No plan generated yet. Generate today's plan.</EmptyState>
+            <EmptyState>No tasks picked yet. Add work/admin items or generate today's plan.</EmptyState>
           )}
+
+          {plan?.avoid?.length ? <p className="avoid-line">Avoid: {plan.avoid.join(', ')}</p> : null}
 
           <div className="command-footer">
             <Button variant="primary" onClick={generatePlan} disabled={saving}>
@@ -1236,6 +1380,28 @@ function App() {
                 onChange={(value) => setSetup((current) => ({ ...current, training: value }))}
               />
             </div>
+            <div className="setup-block">
+              <label>Chinese class today</label>
+              <SegmentedControl
+                value={setup.chinese_class}
+                options={[
+                  { value: 'no', label: 'No' },
+                  { value: 'yes', label: 'Yes' },
+                ]}
+                onChange={(value) => setSetup((current) => ({ ...current, chinese_class: value }))}
+              />
+            </div>
+            <div className="setup-block">
+              <label>Social commitment today</label>
+              <SegmentedControl
+                value={setup.social_commitment}
+                options={[
+                  { value: 'no', label: 'No' },
+                  { value: 'yes', label: 'Yes' },
+                ]}
+                onChange={(value) => setSetup((current) => ({ ...current, social_commitment: value }))}
+              />
+            </div>
             <Button variant="primary" onClick={saveDailySetup} disabled={saving}>
               Save setup
             </Button>
@@ -1282,46 +1448,6 @@ function App() {
 
         <div className="two-column">
           <Card>
-            <SectionHeader
-              eyebrow="Review"
-              title="Today's quiz"
-              action={
-                <Button
-                  size="sm"
-                  variant="primary"
-                  onClick={() => {
-                    setActiveTab('Quiz');
-                    setQuizIndex(0);
-                  }}
-                >
-                  Start quiz
-                </Button>
-              }
-            />
-            <div className="quiz-summary">
-              {quizMix.length ? (
-                <div className="topic-mix">
-                  {quizMix.map(([name, count]) => (
-                    <Badge key={name} tone="neutral">
-                      {name} {count}
-                    </Badge>
-                  ))}
-                </div>
-              ) : (
-                <p className="muted">No quiz selected yet. Generate the plan to refresh the queue.</p>
-              )}
-              <DdiaChapterSelector
-                available={ddiaSettings.available_chapters}
-                selected={selectedDdiaChapters}
-                onToggle={toggleDdiaChapter}
-                onSave={() => saveDdiaChapters()}
-                saving={saving}
-                compact
-              />
-            </div>
-          </Card>
-
-          <Card>
             <SectionHeader eyebrow="Support" title="Admin / Life support" />
             <div className="inline-form">
               <input
@@ -1367,6 +1493,42 @@ function App() {
 
     return (
       <div className="page-stack narrow">
+        <Card>
+          <SectionHeader
+            eyebrow="Daily queue"
+            title="10 DDIA + 10 Chinese"
+            action={
+              <Button size="sm" variant="primary" onClick={() => setQuizIndex(0)}>
+                Start quiz
+              </Button>
+            }
+          />
+          <div className="quiz-summary">
+            <div className="topic-mix">
+              {quizMix.length ? (
+                quizMix.map(([name, count]) => (
+                  <Badge key={name} tone="neutral">
+                    {name} {count}
+                  </Badge>
+                ))
+              ) : (
+                <>
+                  <Badge tone="neutral">DDIA 10</Badge>
+                  <Badge tone="neutral">Chinese 10</Badge>
+                </>
+              )}
+            </div>
+            <DdiaChapterSelector
+              available={ddiaSettings.available_chapters}
+              selected={selectedDdiaChapters}
+              onToggle={toggleDdiaChapter}
+              onSave={() => saveDdiaChapters()}
+              onClear={() => saveDdiaChapters([])}
+              saving={saving}
+              compact
+            />
+          </div>
+        </Card>
         <Card>
           <SectionHeader eyebrow="Focused review" title="Quiz session" />
           {quiz.length ? (
@@ -1611,6 +1773,87 @@ function App() {
   function renderTargets() {
     return (
       <div className="page-stack">
+        <div className="two-column">
+          <Card>
+            <SectionHeader eyebrow="New" title="Add topic" />
+            <div className="form-grid">
+              <label>
+                Topic name
+                <input
+                  value={newTopicName}
+                  onChange={(event) => setNewTopicName(event.target.value)}
+                  placeholder="Concurrency, Spanish, house chores"
+                />
+              </label>
+              <label>
+                Category
+                <select value={newTopicCategory} onChange={(event) => setNewTopicCategory(event.target.value)}>
+                  {categoryOrder.map((category) => (
+                    <option key={category.key} value={category.key}>
+                      {category.title}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Priority
+                <input
+                  type="number"
+                  min="1"
+                  max="5"
+                  value={newTopicPriority}
+                  onChange={(event) => setNewTopicPriority(Number(event.target.value))}
+                />
+              </label>
+            </div>
+            <Button variant="primary" onClick={createTopicFromForm} disabled={saving || !newTopicName.trim()}>
+              Add topic
+            </Button>
+          </Card>
+
+          <Card>
+            <SectionHeader eyebrow="Weekly" title="Add or update target" />
+            <div className="form-grid">
+              <label>
+                Topic
+                <select
+                  value={targetTopicId}
+                  onChange={(event) => setTargetTopicId(event.target.value ? Number(event.target.value) : '')}
+                >
+                  <option value="">Choose topic</option>
+                  {topics.map((topic) => (
+                    <option key={topic.id} value={topic.id}>
+                      {topic.name} ({displayCategory(topic.category)})
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Target type
+                <select value={targetType} onChange={(event) => setTargetType(event.target.value)}>
+                  {targetTypes.map((type) => (
+                    <option key={type} value={type}>
+                      {titleCase(type)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Per week
+                <input
+                  type="number"
+                  min="0"
+                  value={targetValue}
+                  onChange={(event) => setTargetValue(Number(event.target.value))}
+                />
+              </label>
+            </div>
+            <Button variant="primary" onClick={saveTargetFromForm} disabled={saving || !targetTopicId}>
+              Save target
+            </Button>
+          </Card>
+        </div>
+
         {topicBuckets.map((bucket) => (
           <TargetBucket
             key={bucket.key}
@@ -1755,23 +1998,16 @@ function App() {
           <div className="settings-list">
             <div>
               <strong>Quiz size</strong>
-              <span>Controlled by planner day type. No frontend override exists yet.</span>
+              <span>Every day: 10 DDIA questions and 10 Chinese questions.</span>
             </div>
             <div>
               <strong>DDIA chapter filter</strong>
               <span>
                 {selectedDdiaChapters.length
                   ? `Testing chapters ${selectedDdiaChapters.join(', ')}`
-                  : 'All imported DDIA chapters are eligible.'}
+                  : 'All imported DDIA chapters are eligible.'}{' '}
+                Change this on the Quiz tab.
               </span>
-              <DdiaChapterSelector
-                available={ddiaSettings.available_chapters}
-                selected={selectedDdiaChapters}
-                onToggle={toggleDdiaChapter}
-                onSave={() => saveDdiaChapters()}
-                onClear={() => saveDdiaChapters([])}
-                saving={saving}
-              />
             </div>
             <div>
               <strong>Debug</strong>
@@ -1818,7 +2054,6 @@ function App() {
         {activeTab === 'Quiz' ? renderQuiz() : null}
         {activeTab === 'Tasks' ? renderTasks() : null}
         {activeTab === 'Targets' ? renderTargets() : null}
-        {activeTab === 'Notes' ? renderNotes() : null}
         {activeTab === 'Settings' ? renderSettings() : null}
       </main>
     </div>

@@ -73,8 +73,7 @@ def generate_plan(session:Session, on_date:date):
     avoid=["High cognitive tasks after BJJ"] if day_type=="late_bjj_day" else []
     if has_bjj: avoid.append("LeetCode unless it is a tiny warm-up")
     if on_date.weekday()<5: avoid.append("DDIA reading block; keep it for Saturday/Sunday")
-    quiz_count=10 if day_type=="open_day" else 5
-    if day_type=="late_bjj_day" or (checkin and checkin.sleep_quality.value=="bad"): quiz_count=4
+    quiz_count=20
     admin_items=session.exec(select(AdminItem).where(AdminItem.active==True).order_by(AdminItem.created_at.desc())).all()
     admin_options=[item.title for item in admin_items[:5]]
     sunday_meal_prep=on_date.weekday()==6 and any(t.name.lower()=="meal prep" for t in topics)
@@ -84,6 +83,6 @@ def generate_plan(session:Session, on_date:date):
     admin_hint="Sunday: meal prep is the default admin task" if sunday_meal_prep else "Minimum viable day: 1 essential admin task"
     if admin_options:
         admin_hint=f"{admin_hint} from your list"
-    plan=DailyPlan(date=on_date, day_type=day_type, main_focus=main, secondary_focus=secondary, training={"hint":training_hint}, admin={"hint":admin_hint, "options":admin_options}, quiz={"count":quiz_count}, avoid=avoid)
+    plan=DailyPlan(date=on_date, day_type=day_type, main_focus=main, secondary_focus=secondary, training={"hint":training_hint}, admin={"hint":admin_hint, "options":admin_options}, quiz={"count":quiz_count, "topics":{"DDIA":10, "Chinese":10}}, avoid=avoid)
     session.add(plan); session.commit(); session.refresh(plan)
     return plan

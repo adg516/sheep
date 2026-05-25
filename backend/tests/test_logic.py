@@ -71,6 +71,22 @@ def test_quiz_keeps_some_topic_diversity():
     topic_ids=[q.topic_id for q in out]
     assert chinese.id in topic_ids
 
+def test_daily_quiz_targets_ten_ddia_and_ten_chinese():
+    s=mk(); ddia=Topic(name='DDIA',category=TopicCategory.professional,priority_weight=5); chinese=Topic(name='Chinese',category=TopicCategory.language,priority_weight=4); other=Topic(name='Meditation',category=TopicCategory.health,priority_weight=3)
+    s.add(ddia); s.add(chinese); s.add(other); s.commit(); s.refresh(ddia); s.refresh(chinese); s.refresh(other)
+    for i in range(12):
+        s.add(Question(fact_id=i+1,topic_id=ddia.id,prompt=f'ddia {i}',correct_answer='a',acceptable_answers=['a'],explanation='e'))
+    for i in range(11):
+        s.add(Question(fact_id=100+i,topic_id=chinese.id,prompt=f'chinese {i}',correct_answer='a',acceptable_answers=['a'],explanation='e'))
+    s.add(Question(fact_id=999,topic_id=other.id,prompt='other',correct_answer='a',acceptable_answers=['a'],explanation='e'))
+    s.commit()
+    out=select_today_questions(s,date.today())
+    topic_ids=[q.topic_id for q in out]
+    assert len(out)==20
+    assert topic_ids.count(ddia.id)==10
+    assert topic_ids.count(chinese.id)==10
+    assert other.id not in topic_ids
+
 def test_ddia_chapter_setting_filters_ddia_cards():
     s=mk(); ddia=Topic(name='DDIA',category=TopicCategory.professional,priority_weight=5); chinese=Topic(name='Chinese',category=TopicCategory.language,priority_weight=4); s.add(ddia); s.add(chinese); s.commit(); s.refresh(ddia); s.refresh(chinese)
     q1=Question(fact_id=1,topic_id=ddia.id,prompt='chapter 1',correct_answer='a',acceptable_answers=['a'],metadata_json={'chapter':1},explanation='e')

@@ -447,6 +447,16 @@ def add_event(event: CalendarEvent, session: Session = Depends(get_session)):
     return event
 
 
+@app.delete("/api/calendar/events/{item_id}", dependencies=api_auth)
+def delete_event(item_id: int, session: Session = Depends(get_session)):
+    event = session.get(CalendarEvent, item_id)
+    if not event:
+        raise HTTPException(status_code=404, detail="Calendar event not found")
+    session.delete(event)
+    session.commit()
+    return {"ok": True}
+
+
 @app.get("/api/calendar/events", dependencies=api_auth)
 def events(date: str, session: Session = Depends(get_session)):
     start = datetime.strptime(date, "%Y-%m-%d")

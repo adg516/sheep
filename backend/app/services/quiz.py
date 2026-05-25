@@ -5,6 +5,7 @@ from app.models import AppSetting, CardState, Question, Topic, DailyPlan, Review
 
 
 DDIA_CHAPTER_SETTING_KEY = "ddia_chapters"
+DAILY_TOPIC_TARGETS = {"ddia": 10, "chinese": 10}
 
 
 def is_bjj_topic(topic: Topic | None) -> bool:
@@ -23,6 +24,9 @@ def ddia_question_allowed(q: Question, topic: Topic | None, chapters: set[int]) 
         return int(raw_chapter) in chapters
     except (TypeError, ValueError):
         return False
+
+def topic_key(topic: Topic | None) -> str:
+    return topic.name.strip().lower() if topic else "unknown"
 
 def select_today_questions(session:Session, on_date:date):
     questions=session.exec(select(Question).where(Question.active==True)).all()
@@ -44,7 +48,14 @@ def select_today_questions(session:Session, on_date:date):
         rand=random.random()*0.3
         ranked.append((q,topic,due+weak+imp+bonus+rand))
     ranked.sort(key=lambda x:x[2], reverse=True)
-    count=5
+    targeted=[]
+    for target_topic, target_count in DAILY_TOPIC_TARGETS.items():
+        topic_questions=[q for q,topic,_ in ranked if topic_key(topic)==target_topic]
+        targeted.extend(topic_questions[:target_count])
+    if targeted:
+        return targeted
+
+    count=20
     if plan and plan.quiz.get("count"): count=plan.quiz["count"]
     topic_limit=max(2, count//2)
     selected=[]
