@@ -1,105 +1,226 @@
-# Command Card UI Handoff
+# Command Card Handoff
 
-Last updated: 2026-05-24
+Last updated: 2026-05-25
 
-## What changed
+## Production
 
-This pass redesigned Command Card from a rough debug dashboard into a tabbed daily operating dashboard.
+- Frontend: https://arjunsheep.vercel.app
+- Backend: https://arjunsheep-api.fly.dev
+- Current app password: `Galloran@1234`
+- Production branch: `main`
+- Latest deployed commit: `af426d0 Show all work tasks on command card`
 
-The work is intentionally frontend-heavy. Backend planning and quiz selection behavior were preserved except for small UI support around daily check-ins.
+Security note: the app password is intentionally static because the user requested it for now. Treat it as a convenience password, not real security. Rotate later if this app becomes less private.
 
-## Files changed
+## Repo / Branch State
 
-- `frontend/src/main.tsx`
-  - Replaced the single debug-style view with a tabbed React app shell.
-  - Added tabs: Today, Quiz, Tasks, Targets, Notes, Settings.
-  - Added reusable local components in the same file: `Button`, `Card`, `Badge`, `ProgressBar`, `SegmentedControl`, `EmptyState`, `SectionHeader`.
-  - Added Today command card, daily setup, work task input, training selection, quiz mini-card, and admin quick-add.
-  - Added focused quiz flow with answer reveal, grading, progress, and simple keyboard grading.
-  - Reworked tasks into Work, Admin, Training, and Missed/Recent sections.
-  - Reworked Goals concept into Targets grouped as Active Core, Maintenance, and Exploration / Optional.
-  - Reworked Notes into a 3-step source note -> fact review -> question generation flow.
-  - Moved API URL/app password controls into Settings.
-
-- `frontend/src/styles.css`
-  - Replaced the minimal CSS with the app shell, responsive card layout, mobile tab wrapping, buttons, badges, progress bars, compact task rows, target cards, fact cards, and quiz styling.
-  - Kept design simple: max-width app shell, soft borders, subtle shadows, 8px cards/buttons, mobile stacking, no decorative complexity.
-
-- `backend/app/main.py`
-  - Added `GET /api/checkin?date=YYYY-MM-DD` so the frontend can reload and display the latest saved check-in for a date.
-  - Existing endpoints and behavior were otherwise preserved.
-
-- `backend/app/services/planner.py`
-  - Planner now reads the latest check-in row for the date instead of the first row, so repeated daily setup saves use the most recent state.
-
-## Verification run
-
-Commands run successfully:
+Local working branch used by Codex:
 
 ```bash
-cd frontend
-npm install
-npm run build
+codex/build-mvp-for-personal-development-webapp-0t7xfa
 ```
 
+It is ahead/behind its old feature-branch upstream, but deployments have been pushed with:
+
 ```bash
-cd backend
-python3 -m pip install --user --break-system-packages -e '.[dev]'
-python3 -m pytest
+git push origin HEAD:main
 ```
 
-Result: backend tests passed, `8 passed`.
+Recent commits:
 
-`git diff --check` also passed.
+```text
+af426d0 Show all work tasks on command card
+c081714 Make daily quiz fixed and simplify command card
+fdf9afd Show daily commitments and prioritize work tasks
+2783184 Coerce check-in dates before Postgres queries
+bd92a94 Lock production frontend to Fly API
+```
 
-Note: this environment did not have `python3-venv` or `pip` initially. `python3 -m venv` failed because `ensurepip` was missing, and sudo required a password. I installed pip user-local with `get-pip.py --user --break-system-packages` to run tests.
+## Current Product Shape
 
-## Local preview used
+Visible tabs:
 
-I tested with a throwaway SQLite DB:
+- Today
+- Quiz
+- Tasks
+- Targets
+- Settings
 
-```bash
-rm -f /tmp/command_card_dev.db
-APP_PASSWORD=change-me DATABASE_URL=sqlite:////tmp/command_card_dev.db python3 seed.py
-APP_PASSWORD=change-me DATABASE_URL=sqlite:////tmp/command_card_dev.db python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+Notes tab was removed from the frontend. Backend note/fact/source endpoints still exist because quiz source backing and future imports still depend on those concepts.
+
+## Today Tab Rules
+
+The main Daily Command Card is now an ordered checklist, not a wordy focus card.
+
+Order is:
+
+1. All planned work tasks, in user-defined priority order.
+2. Standalone planner focus, such as DDIA, if it is not already represented by a task.
+3. Daily quiz.
+4. Chinese class event, if marked in setup.
+5. Planned admin tasks.
+6. Training events.
+7. Social commitment event, if marked in setup.
+
+Important behavior:
+
+- Every planned work task appears on the card. The old work-task target no longer limits card display.
+- Task rows on the card have `Done`, `Missed`, and `Skip`.
+- Marking a task changes its backend status and removes it from the planned command-card list.
+- The standalone focus row also has `Done`, `Missed`, and `Skip`; it records a one-off focus task.
+- Work tasks are still reordered with up/down arrows in the Work task panel and Tasks tab.
+
+## Daily Setup
+
+Daily setup now saves:
+
+- Sleep: bad / meh / good
+- Soreness: low / medium / high
+- Work pressure: low / medium / high
+- Training today: none / BJJ / lifting / both / other
+- Chinese class today: no / yes
+- Social commitment today: no / yes
+
+Implementation detail:
+
+- Training, Chinese class, and social commitment are represented as manual calendar events so planner day classification can use existing calendar logic.
+- Backend now has `DELETE /api/calendar/events/{id}` so toggling Chinese/social back to `No` can remove those auto-created manual events.
+
+## Quiz Rules
+
+Daily quiz is fixed:
+
+- 10 DDIA questions
+- 10 Chinese questions
+
+Backend selector:
+
+- `backend/app/services/quiz.py`
+- Excludes BJJ questions.
+- Respects the DDIA chapter filter.
+- Ranks within each topic using due date, weakness, topic priority, current focus bonus, and small randomness.
+- Falls back to generic ranking only if there are no DDIA/Chinese target-topic questions available.
+
+Planner now records:
+
+```json
+{"count": 20, "topics": {"DDIA": 10, "Chinese": 10}}
+```
+
+DDIA chapter selection moved to the Quiz tab. Settings only summarizes the current chapter filter.
+
+Live verification after deploy showed:
+
+```text
+DDIA    10
+Chinese 10
+```
+
+## Targets Tab
+
+Targets tab now supports:
+
+- Add topic
+- Pick category for any topic
+- Pick priority 1-5
+- Add or update weekly target for any existing topic
+- Target types: blocks, minutes, questions, sessions, binary
+
+Topics are bucketed by category:
+
+- Professional
+- Study
+- Training
+- Admin
+- Creative
+- Social
+- Health
+- Other
+
+Current category display changes already in place:
+
+- `language` displays as `Study`.
+- Meditation is under Study in production seed/data from prior work.
+- Meal prep is under Admin.
+- Bidet reviews is under Creative.
+
+## Deploy Commands
+
+Backend:
+
+```powershell
+cd C:\Users\megab\Documents\Codex\2026-05-17\prior-conversation-with-codex-conversation-role\sheep\backend
+C:\Users\megab\.fly\bin\flyctl.exe deploy
 ```
 
 Frontend:
 
-```bash
-cd frontend
-VITE_API_URL=http://localhost:8000 VITE_APP_PASSWORD=change-me npm run dev -- --host 0.0.0.0 --port 5173
+```powershell
+cd C:\Users\megab\Documents\Codex\2026-05-17\prior-conversation-with-codex-conversation-role\sheep
+C:\Users\megab\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe C:\Users\megab\Documents\Codex\2026-05-18\files-mentioned-by-the-user-ddia2\.tooling\vercel-cli\node_modules\vercel\dist\vc.js --prod --yes
 ```
 
-## Vercel deploy status
+The regular `vercel.cmd` path produced `Access is denied`; running Vercel through the bundled Node executable works.
 
-I attempted:
+## Verification Commands
 
-```bash
-npx vercel --prod --yes
+Backend tests:
+
+```powershell
+cd C:\Users\megab\Documents\Codex\2026-05-17\prior-conversation-with-codex-conversation-role\sheep\backend
+.\.venv\Scripts\python.exe -m pytest
 ```
 
-Deploy did not complete because the local Vercel CLI has no valid usable credentials:
+Last result:
 
 ```text
-Error: The specified token is not valid. Use `vercel login` to generate a new token.
+20 passed
 ```
 
-`npx vercel whoami` started an OAuth device login flow, which I stopped. Next session needs a valid Vercel login/token before deploying.
+Frontend build:
 
-## Known limitations
+```powershell
+cd C:\Users\megab\Documents\Codex\2026-05-17\prior-conversation-with-codex-conversation-role\sheep\frontend
+C:\Users\megab\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe node_modules\vite\bin\vite.js build
+```
 
-- The current backend does not expose DDIA chapter filters, so Settings shows this as unavailable.
-- Daily quiz size defaults are planner-controlled only; no frontend override exists yet.
-- Target progress is computed client-side from done tasks because there is no target progress summary endpoint.
-- Quiz "why this appeared" is inferred from available data. The backend does not return exact selection reasons.
-- Question/topic/source metadata is assembled client-side from existing endpoints where possible.
-- The frontend is still a single `main.tsx` file. It has reusable component functions, but it has not been split into multiple modules yet.
+Last result: Vite production build succeeded.
 
-## Good next steps
+Live backend health:
 
-- Split `frontend/src/main.tsx` into small page/component files if the app keeps growing.
-- Add a backend target progress endpoint if target accuracy matters.
-- Add a richer quiz selection response with topic/source/reason metadata.
-- Add first-class training logs if training should be more than manual calendar events/tasks.
-- Add Vercel credentials and deploy once auth is fixed.
+```powershell
+Invoke-RestMethod -Uri https://arjunsheep-api.fly.dev/healthz
+```
+
+Live quiz mix:
+
+```powershell
+$headers=@{'x-app-password'='Galloran@1234'}
+$topics=Invoke-RestMethod -Headers $headers -Uri 'https://arjunsheep-api.fly.dev/api/topics'
+$topicById=@{}
+foreach ($t in $topics) { $topicById[[int]$t.id]=$t.name }
+$quiz=Invoke-RestMethod -Headers $headers -Uri 'https://arjunsheep-api.fly.dev/api/quiz/today?date=2026-05-24'
+$quiz | Group-Object { $topicById[[int]$_.topic_id] } | Select-Object Name,Count
+```
+
+## Useful User Context
+
+User prefers calm, patient iteration. They explicitly said they were high during the latest UI review, so avoid terse or brittle explanations.
+
+Recent requested product direction:
+
+- The app should reduce decisions.
+- The main card should be the actual ordered list of things to do today.
+- Mentally strenuous tasks first.
+- Admin/lifting/social later.
+- Daily quiz commitment is fine: always DDIA 10 + Chinese 10.
+- BJJ quizzing is out.
+- Work tasks should be reorderable and all planned work tasks should appear on the card.
+- Card task rows should be actionable with Done/Missed/Skip.
+
+## Known Follow-Ups
+
+- The old daily `work_task_target` setting still exists in backend daily settings, but it no longer limits the Today card. It is mostly legacy UI state now.
+- Training/social/Chinese event times are defaults. If the user wants exact times, add editable event times later.
+- The frontend is still a large single `frontend/src/main.tsx`; splitting it up would help if the app grows.
+- The Chinese imported text appears mojibake in some PowerShell JSON output, but the app/browser may still render from stored DB values. Check actual UI before assuming data corruption.
