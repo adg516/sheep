@@ -1199,7 +1199,7 @@ function App() {
   const adminTasks = tasks.filter(taskIsAdmin);
   const trainingTasks = tasks.filter(taskIsTraining);
   const todayWorkTasks = todayPlannedTasks(workTasks);
-  const commandWorkTasks = todayWorkTasks.slice(0, workTaskTarget);
+  const commandWorkTasks = todayWorkTasks;
   const todayAdminTasks = todayPlannedTasks(adminTasks);
   const todayTrainingEvents = events.filter((event) => event.tags?.includes('training') || /bjj|lifting|train/i.test(event.title));
   const todayChineseEvents = events.filter((event) => /chinese/i.test(event.title));
@@ -1211,9 +1211,13 @@ function App() {
   const focusCoveredByWork = commandWorkTasks.some(
     (task) => topicName(task.topic_id).toLowerCase() === plan?.main_focus?.topic?.toLowerCase(),
   );
+  const focusAlreadyRecorded = tasks.some(
+    (task) => task.scheduled_date === today && mainTopic && task.topic_id === mainTopic.id,
+  );
   const focusIsStandalone =
     Boolean(plan?.main_focus?.topic) &&
     !focusCoveredByWork &&
+    !focusAlreadyRecorded &&
     !['admin', 'training', 'health', 'social'].includes(focusCategory);
   const commandItems = [
     ...commandWorkTasks.map((task) => ({
@@ -1221,6 +1225,7 @@ function App() {
       title: task.title,
       detail: 'Work',
       kind: 'work',
+      task,
     })),
     ...(focusIsStandalone && plan?.main_focus?.topic
       ? [
@@ -1229,6 +1234,7 @@ function App() {
             title: plan.main_focus.topic,
             detail: plan.main_focus.suggestion || `${plan.main_focus.minutes || 30} min`,
             kind: 'focus',
+            focusAction: true,
           },
         ]
       : []),
@@ -1244,11 +1250,12 @@ function App() {
       detail: formatTime(event.start_at),
       kind: 'study',
     })),
-    ...todayAdminTasks.slice(0, 4).map((task) => ({
+    ...todayAdminTasks.map((task) => ({
       id: `admin-${task.id}`,
       title: task.title,
       detail: 'Admin',
       kind: 'admin',
+      task,
     })),
     ...todayTrainingEvents.map((event) => ({
       id: `training-${event.id}`,
@@ -1310,6 +1317,32 @@ function App() {
                     <strong>{item.title}</strong>
                     <span>{item.detail}</span>
                   </div>
+                  {item.task || item.focusAction ? (
+                    <div className="daily-order-actions">
+                      <Button
+                        size="sm"
+                        onClick={() => (item.task ? updateTaskStatus(item.task, 'done') : markMainFocus('done'))}
+                        disabled={saving}
+                      >
+                        Done
+                      </Button>
+                      <Button
+                        size="sm"
+                        onClick={() => (item.task ? updateTaskStatus(item.task, 'missed') : markMainFocus('missed'))}
+                        disabled={saving}
+                      >
+                        Missed
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => (item.task ? updateTaskStatus(item.task, 'skipped') : markMainFocus('skipped'))}
+                        disabled={saving}
+                      >
+                        Skip
+                      </Button>
+                    </div>
+                  ) : null}
                 </li>
               ))}
             </ol>
@@ -1411,13 +1444,6 @@ function App() {
             <SectionHeader
               eyebrow="Work"
               title="Work tasks"
-              action={
-                <WorkTargetControl
-                  value={workTaskTarget}
-                  onChange={saveWorkTaskTarget}
-                  disabled={saving}
-                />
-              }
             />
             <label className="field-label" htmlFor="work-task">
               Add a concrete work task for today
@@ -1439,7 +1465,7 @@ function App() {
             <TaskPreviewList
               tasks={todayWorkTasks}
               topicName={topicName}
-              selectedCount={workTaskTarget}
+              selectedCount={todayWorkTasks.length}
               mode="priority"
               onMove={(task, direction) => moveTask(task, direction, todayWorkTasks)}
             />
@@ -1674,13 +1700,6 @@ function App() {
             <SectionHeader
               eyebrow="Work"
               title="Work tasks"
-              action={
-                <WorkTargetControl
-                  value={workTaskTarget}
-                  onChange={saveWorkTaskTarget}
-                  disabled={saving}
-                />
-              }
             />
             <div className="inline-form">
               <input
@@ -1695,7 +1714,7 @@ function App() {
             <TaskList
               tasks={orderedTasks(workTasks)}
               topicName={topicName}
-              selectedCount={workTaskTarget}
+              selectedCount={todayWorkTasks.length}
               mode="priority"
               onMove={(task, direction) => moveTask(task, direction, orderedTasks(workTasks))}
               empty="No work tasks yet."

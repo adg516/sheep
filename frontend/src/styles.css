@@ -331,7 +331,7 @@ main {
 .daily-order-item {
   counter-increment: daily-order;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 0.75rem;
   border: 1px solid rgba(159, 176, 199, 0.34);
@@ -367,6 +367,13 @@ main {
 .daily-order-item span {
   color: #64748b;
   font-size: 0.86rem;
+}
+
+.daily-order-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.35rem;
 }
 
 .avoid-line {
@@ -985,24 +992,28 @@ main {
   .inline-form,
   .notes-grid,
   .task-row,
+  .daily-order-item,
   .list-item,
   .grade-grid {
     grid-template-columns: 1fr;
   }
 
   .button,
+  .daily-order-actions .button,
   .task-actions .button {
     width: 100%;
   }
 
   .button-row,
   .task-actions,
+  .daily-order-actions,
   .priority-actions,
   .target-meta > div {
     width: 100%;
   }
 
   .task-actions,
+  .daily-order-actions,
   .priority-actions,
   .target-meta > div {
     display: grid;
