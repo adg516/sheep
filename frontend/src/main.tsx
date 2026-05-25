@@ -14,7 +14,7 @@ const defaultPassword = env.VITE_APP_PASSWORD || '';
 type Tab = 'Today' | 'Quiz' | 'Tasks' | 'Targets' | 'Settings';
 type Grade = 'again' | 'hard' | 'good' | 'easy';
 type TaskStatus = 'planned' | 'done' | 'missed' | 'skipped';
-type TaskRowMode = 'status' | 'priority' | 'priority-status';
+type TaskRowMode = 'status' | 'priority' | 'priority-status' | 'points-status';
 
 type Topic = {
   id: number;
@@ -44,8 +44,13 @@ type Task = {
   scheduled_date?: string | null;
   completed_at?: string | null;
   sort_order?: number;
+  priority_points?: number;
   created_at?: string;
 };
+
+function taskPriority(task: Task) {
+  return Math.max(1, Math.min(5, Number(task.priority_points || 3)));
+}
 
 type Source = {
   id: number;
@@ -317,6 +322,34 @@ function Button({ variant = 'secondary', size = 'md', className = '', ...props }
   );
 }
 
+function IconButton({
+  label,
+  children,
+  className = '',
+  ...props
+}: React.ButtonHTMLAttributes<HTMLButtonElement> & {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <button type="button" className={`icon-button ${className}`.trim()} aria-label={label} title={label} {...props}>
+      {children}
+    </button>
+  );
+}
+
+function TrashIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M4 7h16" />
+      <path d="M10 11v6" />
+      <path d="M14 11v6" />
+      <path d="M6 7l1 14h10l1-14" />
+      <path d="M9 7V4h6v3" />
+    </svg>
+  );
+}
+
 function Card({
   children,
   className = '',
@@ -445,6 +478,7 @@ function App() {
   });
   const [workTaskTitle, setWorkTaskTitle] = useState('');
   const [adminTaskTitle, setAdminTaskTitle] = useState('');
+  const [adminTaskPriority, setAdminTaskPriority] = useState(3);
   const [newTopicName, setNewTopicName] = useState('');
   const [newTopicCategory, setNewTopicCategory] = useState('professional');
   const [newTopicPriority, setNewTopicPriority] = useState(3);
@@ -684,8 +718,24 @@ function App() {
       );
   }
 
+  function orderedAdminTasks(nextTasks: Task[]) {
+    return nextTasks
+      .slice()
+      .sort(
+        (a, b) =>
+          taskPriority(b) - taskPriority(a) ||
+          (a.sort_order || 0) - (b.sort_order || 0) ||
+          String(a.created_at || '').localeCompare(String(b.created_at || '')) ||
+          a.id - b.id,
+      );
+  }
+
   function todayPlannedTasks(nextTasks: Task[]) {
     return orderedTasks(nextTasks.filter((task) => task.scheduled_date === today && task.status === 'planned'));
+  }
+
+  function todayPlannedAdminTasks(nextTasks: Task[]) {
+    return orderedAdminTasks(nextTasks.filter((task) => task.scheduled_date === today && task.status === 'planned'));
   }
 
   function toggleDdiaChapter(chapter: number) {
@@ -893,6 +943,7 @@ function App() {
           status: 'planned',
           scheduled_date: today,
           sort_order: (existingTodayAdmin.length + 1) * 1000,
+          priority_points: adminTaskPriority,
         },
       });
       setAdminTaskTitle('');
@@ -914,6 +965,36 @@ function App() {
       } else {
         await requestJson<Task>(`/api/tasks/${task.id}`, { method: 'PATCH', body: { status } });
       }
+      await loadData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function updateTaskPriority(task: Task, priority: number) {
+    setSaving(true);
+    try {
+      await requestJson<Task>(`/api/tasks/${task.id}`, {
+        method: 'PATCH',
+        body: { priority_points: Math.max(1, Math.min(5, priority)) },
+      });
+      await loadData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function deleteTask(task: Task) {
+    const ok = window.confirm(`Delete "${task.title}"?`);
+    if (!ok) return;
+
+    setSaving(true);
+    try {
+      await requestJson<{ ok: boolean }>(`/api/tasks/${task.id}`, { method: 'DELETE' });
       await loadData();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -1227,7 +1308,7 @@ function App() {
   const trainingTasks = tasks.filter(taskIsTraining);
   const todayWorkTasks = todayPlannedTasks(workTasks);
   const commandWorkTasks = todayWorkTasks;
-  const todayAdminTasks = todayPlannedTasks(adminTasks);
+  const todayAdminTasks = todayPlannedAdminTasks(adminTasks);
   const todayTrainingEvents = events.filter((event) => event.tags?.includes('training') || /bjj|lifting|train/i.test(event.title));
   const todayChineseEvents = events.filter((event) => /chinese/i.test(event.title));
   const todaySocialEvents = events.filter((event) => event.tags?.includes('social') || /social|friends|dinner|party|hangout|date/i.test(event.title));
@@ -1368,6 +1449,15 @@ function App() {
                       >
                         Skip
                       </Button>
+                      {item.task ? (
+                        <IconButton
+                          label="Delete task"
+                          onClick={() => deleteTask(item.task)}
+                          disabled={saving}
+                        >
+                          <TrashIcon />
+                        </IconButton>
+                      ) : null}
                     </div>
                   ) : null}
                 </li>
@@ -1495,6 +1585,7 @@ function App() {
               selectedCount={todayWorkTasks.length}
               mode="priority"
               onMove={(task, direction) => moveTask(task, direction, todayWorkTasks)}
+              onDelete={deleteTask}
             />
           </Card>
         </div>
@@ -1515,6 +1606,10 @@ function App() {
                 Add
               </Button>
             </div>
+            <div className="admin-priority-create">
+              <span className="mini-label">Priority</span>
+              <PriorityPoints value={adminTaskPriority} onChange={setAdminTaskPriority} />
+            </div>
             <div className="quick-chips">
               {['Laundry', 'Bills', 'Texts', 'Email', 'Meal prep'].map((example) => (
                 <button key={example} type="button" onClick={() => addAdminTask(example)}>
@@ -1526,9 +1621,10 @@ function App() {
               tasks={todayAdminTasks}
               topicName={topicName}
               selectedCount={todayAdminTasks.length}
-              mode="priority-status"
-              onMove={(task, direction) => moveTask(task, direction, todayAdminTasks)}
+              mode="points-status"
+              onPriority={updateTaskPriority}
               onStatus={updateTaskStatus}
+              onDelete={deleteTask}
             />
           </Card>
         </div>
@@ -1745,6 +1841,7 @@ function App() {
               selectedCount={todayWorkTasks.length}
               mode="priority"
               onMove={(task, direction) => moveTask(task, direction, orderedTasks(workTasks))}
+              onDelete={deleteTask}
               empty="No work tasks yet."
             />
           </Card>
@@ -1761,13 +1858,18 @@ function App() {
                 Add
               </Button>
             </div>
+            <div className="admin-priority-create">
+              <span className="mini-label">Priority</span>
+              <PriorityPoints value={adminTaskPriority} onChange={setAdminTaskPriority} />
+            </div>
             <TaskList
-              tasks={orderedTasks(adminTasks)}
+              tasks={orderedAdminTasks(adminTasks)}
               topicName={topicName}
               selectedCount={todayAdminTasks.length}
-              mode="priority-status"
-              onMove={(task, direction) => moveTask(task, direction, orderedTasks(adminTasks))}
+              mode="points-status"
+              onPriority={updateTaskPriority}
               onStatus={updateTaskStatus}
+              onDelete={deleteTask}
               empty="No admin items yet. Add bills, laundry, texts, or email."
             />
           </Card>
@@ -1794,6 +1896,7 @@ function App() {
                     topicName={topicName}
                     mode="status"
                     onStatus={updateTaskStatus}
+                    onDelete={deleteTask}
                   />
                 ))}
               </div>
@@ -1810,6 +1913,7 @@ function App() {
               selectedCount={0}
               mode="status"
               onStatus={updateTaskStatus}
+              onDelete={deleteTask}
               empty="No recent or missed tasks."
             />
           </Card>
@@ -2241,6 +2345,8 @@ function TaskPreviewList({
   mode,
   onStatus,
   onMove,
+  onPriority,
+  onDelete,
 }: {
   tasks: Task[];
   topicName: (topicId?: number | null) => string;
@@ -2248,6 +2354,8 @@ function TaskPreviewList({
   mode: TaskRowMode;
   onStatus?: (task: Task, status: TaskStatus) => void;
   onMove?: (task: Task, direction: 'up' | 'down') => void;
+  onPriority?: (task: Task, priority: number) => void;
+  onDelete?: (task: Task) => void;
 }) {
   if (!tasks.length) return <EmptyState>No tasks yet.</EmptyState>;
   return (
@@ -2262,6 +2370,8 @@ function TaskPreviewList({
           mode={mode}
           onStatus={onStatus}
           onMove={onMove}
+          onPriority={onPriority}
+          onDelete={onDelete}
           canMoveUp={index > 0}
           canMoveDown={index < tasks.length - 1}
         />
@@ -2277,6 +2387,8 @@ function TaskList({
   mode,
   onStatus,
   onMove,
+  onPriority,
+  onDelete,
   empty,
 }: {
   tasks: Task[];
@@ -2285,6 +2397,8 @@ function TaskList({
   mode: TaskRowMode;
   onStatus?: (task: Task, status: TaskStatus) => void;
   onMove?: (task: Task, direction: 'up' | 'down') => void;
+  onPriority?: (task: Task, priority: number) => void;
+  onDelete?: (task: Task) => void;
   empty: string;
 }) {
   if (!tasks.length) return <EmptyState>{empty}</EmptyState>;
@@ -2299,6 +2413,8 @@ function TaskList({
           mode={mode}
           onStatus={onStatus}
           onMove={onMove}
+          onPriority={onPriority}
+          onDelete={onDelete}
           canMoveUp={index > 0}
           canMoveDown={index < tasks.length - 1}
         />
@@ -2313,6 +2429,8 @@ function TaskRow({
   mode,
   onStatus,
   onMove,
+  onPriority,
+  onDelete,
   compact = false,
   selected = false,
   canMoveUp = false,
@@ -2323,13 +2441,16 @@ function TaskRow({
   mode: TaskRowMode;
   onStatus?: (task: Task, status: TaskStatus) => void;
   onMove?: (task: Task, direction: 'up' | 'down') => void;
+  onPriority?: (task: Task, priority: number) => void;
+  onDelete?: (task: Task) => void;
   compact?: boolean;
   selected?: boolean;
   canMoveUp?: boolean;
   canMoveDown?: boolean;
 }) {
   const showPriority = mode === 'priority' || mode === 'priority-status';
-  const showStatus = mode === 'status' || mode === 'priority-status';
+  const showPointPriority = mode === 'points-status';
+  const showStatus = mode === 'status' || mode === 'priority-status' || mode === 'points-status';
 
   return (
     <div className={selected ? 'task-row selected-for-card' : 'task-row'}>
@@ -2351,6 +2472,13 @@ function TaskRow({
           </button>
         </div>
       ) : null}
+      {showPointPriority ? (
+        <PriorityPoints
+          value={taskPriority(task)}
+          onChange={(priority) => onPriority?.(task, priority)}
+          compact
+        />
+      ) : null}
       {showStatus && (!compact || task.status === 'planned') ? (
         <div className="task-actions">
           <Button size="sm" onClick={() => onStatus?.(task, 'done')} disabled={task.status === 'done'}>
@@ -2364,6 +2492,41 @@ function TaskRow({
           </Button>
         </div>
       ) : null}
+      {onDelete ? (
+        <IconButton
+          label="Delete task"
+          onClick={() => onDelete(task)}
+          className="trash-button"
+        >
+          <TrashIcon />
+        </IconButton>
+      ) : null}
+    </div>
+  );
+}
+
+function PriorityPoints({
+  value,
+  onChange,
+  compact = false,
+}: {
+  value: number;
+  onChange: (value: number) => void;
+  compact?: boolean;
+}) {
+  return (
+    <div className={compact ? 'point-actions compact' : 'point-actions'} aria-label="Admin priority points">
+      {[1, 2, 3, 4, 5].map((point) => (
+        <button
+          key={point}
+          type="button"
+          className={point === value ? 'selected' : ''}
+          onClick={() => onChange(point)}
+          aria-pressed={point === value}
+        >
+          {point}
+        </button>
+      ))}
     </div>
   );
 }

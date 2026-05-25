@@ -22,7 +22,7 @@ class Topic(SQLModel, table=True):
 class WeeklyTarget(SQLModel, table=True):
     id:Optional[int]=Field(default=None, primary_key=True); topic_id:int=Field(foreign_key="topic.id"); target_type:TargetType; target_value:int; current_period_start:date; active:bool=True
 class Task(SQLModel, table=True):
-    id:Optional[int]=Field(default=None, primary_key=True); topic_id:Optional[int]=Field(default=None, foreign_key="topic.id"); title:str; description:Optional[str]=None; energy_cost:EnergyCost=EnergyCost.medium; duration_minutes:int=45; status:TaskStatus=TaskStatus.planned; scheduled_date:Optional[date]=None; completed_at:Optional[datetime]=None; sort_order:int=0; created_at:datetime=Field(default_factory=datetime.utcnow)
+    id:Optional[int]=Field(default=None, primary_key=True); topic_id:Optional[int]=Field(default=None, foreign_key="topic.id"); title:str; description:Optional[str]=None; energy_cost:EnergyCost=EnergyCost.medium; duration_minutes:int=45; status:TaskStatus=TaskStatus.planned; scheduled_date:Optional[date]=None; completed_at:Optional[datetime]=None; sort_order:int=0; priority_points:int=3; created_at:datetime=Field(default_factory=datetime.utcnow)
 class AdminItem(SQLModel, table=True):
     id:Optional[int]=Field(default=None, primary_key=True); title:str; active:bool=True; created_at:datetime=Field(default_factory=datetime.utcnow)
 class AppSetting(SQLModel, table=True):

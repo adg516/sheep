@@ -8,7 +8,7 @@ Last updated: 2026-05-25
 - Backend: https://arjunsheep-api.fly.dev
 - Current app password: `Galloran@1234`
 - Production branch: `main`
-- Latest deployed commit: `af426d0 Show all work tasks on command card`
+- Latest deployed change: `Add admin priority points and task deletion`
 
 Security note: the app password is intentionally static because the user requested it for now. Treat it as a convenience password, not real security. Rotate later if this app becomes less private.
 
@@ -29,11 +29,11 @@ git push origin HEAD:main
 Recent commits:
 
 ```text
+Add admin priority points and task deletion
 af426d0 Show all work tasks on command card
 c081714 Make daily quiz fixed and simplify command card
 fdf9afd Show daily commitments and prioritize work tasks
 2783184 Coerce check-in dates before Postgres queries
-bd92a94 Lock production frontend to Fly API
 ```
 
 ## Current Product Shape
@@ -69,6 +69,8 @@ Important behavior:
 - Marking a task changes its backend status and removes it from the planned command-card list.
 - The standalone focus row also has `Done`, `Missed`, and `Skip`; it records a one-off focus task.
 - Work tasks are still reordered with up/down arrows in the Work task panel and Tasks tab.
+- Task rows can be deleted from the Tasks tab via the trash icon. This calls `DELETE /api/tasks/{id}`.
+- Admin tasks use 1-5 priority points instead of arrows and are sorted highest priority first.
 
 ## Daily Setup
 
@@ -174,7 +176,7 @@ cd C:\Users\megab\Documents\Codex\2026-05-17\prior-conversation-with-codex-conve
 Last result:
 
 ```text
-20 passed
+21 passed
 ```
 
 Frontend build:

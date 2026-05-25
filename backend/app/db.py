@@ -40,6 +40,7 @@ def ensure_question_import_columns():
 def ensure_task_columns():
     columns = {
         "sort_order": "INTEGER DEFAULT 0",
+        "priority_points": "INTEGER DEFAULT 3",
     }
     with engine.begin() as connection:
         inspector = inspect(connection)

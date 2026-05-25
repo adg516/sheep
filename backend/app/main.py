@@ -202,6 +202,16 @@ def patch_task(item_id: int, patch: dict, session: Session = Depends(get_session
     return task
 
 
+@app.delete("/api/tasks/{item_id}", dependencies=api_auth)
+def delete_task(item_id: int, session: Session = Depends(get_session)):
+    task = session.get(Task, item_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    session.delete(task)
+    session.commit()
+    return {"ok": True}
+
+
 @app.post("/api/tasks/{item_id}/complete", dependencies=api_auth)
 def complete_task(item_id: int, session: Session = Depends(get_session)):
     task = session.get(Task, item_id)

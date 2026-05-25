@@ -29,6 +29,11 @@ def test_daily_settings_default_work_target():
     s=mk()
     assert daily_settings_payload(s, date(2026, 5, 23))["work_task_target"] == 1
 
+def test_task_priority_points_default():
+    s=mk(); task=Task(title='Renew passport', description='admin_task', scheduled_date=date.today())
+    s.add(task); s.commit(); s.refresh(task)
+    assert task.priority_points == 3
+
 def test_task_priority_scoring():
     s=mk(); t=Topic(name='Startup',category=TopicCategory.professional,priority_weight=5); s.add(t); s.commit(); s.refresh(t)
     assert score_topic(s,t,date.today(),'open_day')>=5
