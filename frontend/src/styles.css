@@ -84,6 +84,24 @@ main {
   padding: 1rem;
 }
 
+.auth-shell {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+}
+
+.auth-card {
+  width: min(100%, 420px);
+  display: grid;
+  gap: 1rem;
+}
+
+.unlock-form {
+  display: grid;
+  gap: 0.85rem;
+}
+
 .app-header {
   display: grid;
   gap: 1rem;
@@ -619,7 +637,7 @@ main {
 .task-row,
 .list-item {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 0.65rem;
   border: 1px solid #e1e8f0;

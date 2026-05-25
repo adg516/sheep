@@ -14,6 +14,7 @@ const defaultPassword = env.VITE_APP_PASSWORD || '';
 type Tab = 'Today' | 'Quiz' | 'Tasks' | 'Targets' | 'Settings';
 type Grade = 'again' | 'hard' | 'good' | 'easy';
 type TaskStatus = 'planned' | 'done' | 'missed' | 'skipped';
+type TaskRowMode = 'status' | 'priority' | 'priority-status';
 
 type Topic = {
   id: number;
@@ -409,6 +410,9 @@ function App() {
     () => localStorage.getItem('command-card-password') || defaultPassword,
   );
   const [settingsDraft, setSettingsDraft] = useState({ apiBase, appPassword });
+  const [unlockPassword, setUnlockPassword] = useState(
+    () => localStorage.getItem('command-card-password') || defaultPassword,
+  );
 
   const [plan, setPlan] = useState<Plan | null>(null);
   const [topics, setTopics] = useState<Topic[]>([]);
@@ -491,6 +495,13 @@ function App() {
 
     const parseJson = async (response: Response, retried = false): Promise<T> => {
       if (!response.ok) {
+        if (response.status === 401) {
+          localStorage.removeItem('command-card-password');
+          setAppPassword('');
+          setUnlockPassword('');
+          setSettingsDraft((current) => ({ ...current, appPassword: '' }));
+          throw new Error('Password needed. Unlock Command Card to load your saved state.');
+        }
         const detail = await response.text().catch(() => '');
         throw new Error(detail || `Request failed (${response.status})`);
       }
@@ -521,7 +532,7 @@ function App() {
 
   async function loadData() {
     if (!appPassword) {
-      setError('Set the app password in Settings to connect to the local API.');
+      setError('');
       return;
     }
 
@@ -581,6 +592,19 @@ function App() {
   useEffect(() => {
     loadData();
   }, [apiBase, appPassword]);
+
+  function unlockApp(event?: React.FormEvent) {
+    event?.preventDefault();
+    const password = unlockPassword.trim();
+    if (!password) {
+      setError('Enter the app password to unlock Command Card.');
+      return;
+    }
+    localStorage.setItem('command-card-password', password);
+    setAppPassword(password);
+    setSettingsDraft((current) => ({ ...current, appPassword: password }));
+    setError('');
+  }
 
   useEffect(() => {
     if (!checkin) return;
@@ -854,6 +878,7 @@ function App() {
   async function addAdminTask(titleOverride?: string) {
     const title = (titleOverride || adminTaskTitle).trim();
     if (!title) return;
+    const existingTodayAdmin = todayPlannedTasks(adminTasks);
 
     setSaving(true);
     try {
@@ -867,6 +892,7 @@ function App() {
           duration_minutes: 20,
           status: 'planned',
           scheduled_date: today,
+          sort_order: (existingTodayAdmin.length + 1) * 1000,
         },
       });
       setAdminTaskTitle('');
@@ -1183,6 +1209,7 @@ function App() {
     localStorage.setItem('command-card-password', settingsDraft.appPassword);
     setApiBase(nextApiBase);
     setAppPassword(settingsDraft.appPassword);
+    setUnlockPassword(settingsDraft.appPassword);
     setSettingsDraft({ apiBase: nextApiBase, appPassword: settingsDraft.appPassword });
   }
 
@@ -1496,10 +1523,11 @@ function App() {
               ))}
             </div>
             <TaskPreviewList
-              tasks={todayAdminTasks.slice(0, 4)}
+              tasks={todayAdminTasks}
               topicName={topicName}
-              selectedCount={0}
-              mode="status"
+              selectedCount={todayAdminTasks.length}
+              mode="priority-status"
+              onMove={(task, direction) => moveTask(task, direction, todayAdminTasks)}
               onStatus={updateTaskStatus}
             />
           </Card>
@@ -1736,8 +1764,9 @@ function App() {
             <TaskList
               tasks={orderedTasks(adminTasks)}
               topicName={topicName}
-              selectedCount={0}
-              mode="status"
+              selectedCount={todayAdminTasks.length}
+              mode="priority-status"
+              onMove={(task, direction) => moveTask(task, direction, orderedTasks(adminTasks))}
               onStatus={updateTaskStatus}
               empty="No admin items yet. Add bills, laundry, texts, or email."
             />
@@ -2041,6 +2070,39 @@ function App() {
     );
   }
 
+  if (!appPassword) {
+    return (
+      <div className="auth-shell">
+        <Card className="auth-card">
+          <div className="brand-block">
+            <h1>Command Card</h1>
+            <p>One useful day, not a second job.</p>
+          </div>
+          {error ? (
+            <div className="notice" role="alert">
+              {error}
+            </div>
+          ) : null}
+          <form className="unlock-form" onSubmit={unlockApp}>
+            <label>
+              App password
+              <input
+                type="password"
+                value={unlockPassword}
+                onChange={(event) => setUnlockPassword(event.target.value)}
+                placeholder="Enter password"
+                autoFocus
+              />
+            </label>
+            <Button variant="primary" type="submit" disabled={!unlockPassword.trim()}>
+              Unlock
+            </Button>
+          </form>
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div className="app-shell">
       <header className="app-header">
@@ -2183,7 +2245,7 @@ function TaskPreviewList({
   tasks: Task[];
   topicName: (topicId?: number | null) => string;
   selectedCount: number;
-  mode: 'status' | 'priority';
+  mode: TaskRowMode;
   onStatus?: (task: Task, status: TaskStatus) => void;
   onMove?: (task: Task, direction: 'up' | 'down') => void;
 }) {
@@ -2196,7 +2258,7 @@ function TaskPreviewList({
           task={task}
           topicName={topicName}
           compact
-          selected={mode === 'priority' && index < selectedCount}
+          selected={(mode === 'priority' || mode === 'priority-status') && index < selectedCount}
           mode={mode}
           onStatus={onStatus}
           onMove={onMove}
@@ -2220,7 +2282,7 @@ function TaskList({
   tasks: Task[];
   topicName: (topicId?: number | null) => string;
   selectedCount: number;
-  mode: 'status' | 'priority';
+  mode: TaskRowMode;
   onStatus?: (task: Task, status: TaskStatus) => void;
   onMove?: (task: Task, direction: 'up' | 'down') => void;
   empty: string;
@@ -2233,7 +2295,7 @@ function TaskList({
           key={task.id}
           task={task}
           topicName={topicName}
-          selected={mode === 'priority' && index < selectedCount}
+          selected={(mode === 'priority' || mode === 'priority-status') && index < selectedCount}
           mode={mode}
           onStatus={onStatus}
           onMove={onMove}
@@ -2258,7 +2320,7 @@ function TaskRow({
 }: {
   task: Task;
   topicName: (topicId?: number | null) => string;
-  mode: 'status' | 'priority';
+  mode: TaskRowMode;
   onStatus?: (task: Task, status: TaskStatus) => void;
   onMove?: (task: Task, direction: 'up' | 'down') => void;
   compact?: boolean;
@@ -2266,6 +2328,9 @@ function TaskRow({
   canMoveUp?: boolean;
   canMoveDown?: boolean;
 }) {
+  const showPriority = mode === 'priority' || mode === 'priority-status';
+  const showStatus = mode === 'status' || mode === 'priority-status';
+
   return (
     <div className={selected ? 'task-row selected-for-card' : 'task-row'}>
       <div className="task-main">
@@ -2275,7 +2340,7 @@ function TaskRow({
           {task.scheduled_date ? ` / ${task.scheduled_date}` : ''}
         </span>
       </div>
-      {mode === 'priority' ? (
+      {showPriority ? (
         <div className="priority-actions" aria-label="Task priority controls">
           {selected ? <Badge tone="accent">On card</Badge> : null}
           <button type="button" onClick={() => onMove?.(task, 'up')} disabled={!canMoveUp} aria-label="Move task up">
@@ -2285,7 +2350,8 @@ function TaskRow({
             ↓
           </button>
         </div>
-      ) : !compact || task.status === 'planned' ? (
+      ) : null}
+      {showStatus && (!compact || task.status === 'planned') ? (
         <div className="task-actions">
           <Button size="sm" onClick={() => onStatus?.(task, 'done')} disabled={task.status === 'done'}>
             Done
