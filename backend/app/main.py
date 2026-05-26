@@ -94,6 +94,20 @@ def coerce_ymd_date(value) -> date_type:
     raise ValueError("Expected date in YYYY-MM-DD format")
 
 
+def coerce_optional_ymd_date(value):
+    if value is None:
+        return None
+    return coerce_ymd_date(value)
+
+
+def coerce_iso_datetime(value):
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str):
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    raise ValueError("Expected datetime in ISO format")
+
+
 def daily_settings_key(on_date: date_type) -> str:
     return f"daily_settings:{on_date.isoformat()}"
 
@@ -105,6 +119,10 @@ def daily_settings_payload(session: Session, on_date: date_type) -> dict:
         "date": on_date.isoformat(),
         "work_task_target": max(0, min(6, int(value.get("work_task_target", 1)))),
     }
+
+
+def clamp_priority_points(value) -> int:
+    return max(1, min(5, int(3 if value is None else value)))
 
 
 for name, model in [
@@ -186,6 +204,11 @@ def list_tasks(date: str | None = None, session: Session = Depends(get_session))
 
 @app.post("/api/tasks", dependencies=api_auth)
 def create_task(task: Task, session: Session = Depends(get_session)):
+    try:
+        task.scheduled_date = coerce_optional_ymd_date(task.scheduled_date)
+        task.priority_points = clamp_priority_points(task.priority_points)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     session.add(task)
     session.commit()
     session.refresh(task)
@@ -195,10 +218,20 @@ def create_task(task: Task, session: Session = Depends(get_session)):
 @app.patch("/api/tasks/{item_id}", dependencies=api_auth)
 def patch_task(item_id: int, patch: dict, session: Session = Depends(get_session)):
     task = session.get(Task, item_id)
-    for key, value in patch.items():
-        setattr(task, key, value)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    try:
+        for key, value in patch.items():
+            if key == "priority_points":
+                value = clamp_priority_points(value)
+            if key == "scheduled_date":
+                value = coerce_optional_ymd_date(value)
+            setattr(task, key, value)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     session.add(task)
     session.commit()
+    session.refresh(task)
     return task
 
 
@@ -451,6 +484,11 @@ def generate_today_plan(date: str, session: Session = Depends(get_session)):
 
 @app.post("/api/calendar/events/manual", dependencies=api_auth)
 def add_event(event: CalendarEvent, session: Session = Depends(get_session)):
+    try:
+        event.start_at = coerce_iso_datetime(event.start_at)
+        event.end_at = coerce_iso_datetime(event.end_at)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     session.add(event)
     session.commit()
     session.refresh(event)

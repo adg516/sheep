@@ -8,7 +8,7 @@ Last updated: 2026-05-25
 - Backend: https://arjunsheep-api.fly.dev
 - Current app password: `Galloran@1234`
 - Production branch: `main`
-- Latest deployed change: `Add admin priority points and task deletion`
+- Latest deployed change: `Add API coverage and harden task writes`
 
 Security note: the app password is intentionally static because the user requested it for now. Treat it as a convenience password, not real security. Rotate later if this app becomes less private.
 
@@ -29,6 +29,7 @@ git push origin HEAD:main
 Recent commits:
 
 ```text
+Add API coverage and harden task writes
 Add admin priority points and task deletion
 af426d0 Show all work tasks on command card
 c081714 Make daily quiz fixed and simplify command card
@@ -71,6 +72,7 @@ Important behavior:
 - Work tasks are still reordered with up/down arrows in the Work task panel and Tasks tab.
 - Task rows can be deleted from the Tasks tab via the trash icon. This calls `DELETE /api/tasks/{id}`.
 - Admin tasks use 1-5 priority points instead of arrows and are sorted highest priority first.
+- The backend also clamps task `priority_points` to 1-5 and coerces task dates / calendar datetimes before writing, so direct API calls behave like the frontend.
 
 ## Daily Setup
 
@@ -176,8 +178,10 @@ cd C:\Users\megab\Documents\Codex\2026-05-17\prior-conversation-with-codex-conve
 Last result:
 
 ```text
-21 passed
+33 passed
 ```
+
+The suite now includes route-level FastAPI tests in `backend/tests/test_api.py` for password protection, task priority persistence/clamping, task deletion, task date filtering, daily settings, check-in upsert behavior, DDIA chapter settings, calendar event deletion, MCQ import, and generated plan persistence.
 
 Frontend build:
 
