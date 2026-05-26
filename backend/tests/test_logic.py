@@ -56,6 +56,15 @@ def test_quiz_prioritizes_weak_cards():
     s.add(CardState(question_id=q1.id,recent_accuracy=0.2)); s.add(CardState(question_id=q2.id,recent_accuracy=0.95)); s.commit()
     out=select_today_questions(s,date.today()); assert out[0].id==q1.id
 
+def test_quiz_selection_order_is_stable_for_same_day():
+    s=mk(); t=Topic(name='A',category=TopicCategory.other,priority_weight=1); s.add(t); s.commit(); s.refresh(t)
+    for i in range(8):
+        s.add(Question(fact_id=i+1,topic_id=t.id,prompt=f'p{i}',correct_answer='a',acceptable_answers=['a'],explanation='e'))
+    s.commit()
+    first=[q.id for q in select_today_questions(s,date(2026,5,26))]
+    second=[q.id for q in select_today_questions(s,date(2026,5,26))]
+    assert first==second
+
 def test_quiz_excludes_bjj_cards():
     s=mk(); bjj=Topic(name='BJJ',category=TopicCategory.training,priority_weight=5); ddia=Topic(name='DDIA',category=TopicCategory.professional,priority_weight=5); s.add(bjj); s.add(ddia); s.commit(); s.refresh(bjj); s.refresh(ddia)
     q1=Question(fact_id=1,topic_id=bjj.id,prompt='bjj',correct_answer='a',acceptable_answers=['a'],explanation='e')

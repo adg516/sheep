@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta, date
-import random
+import hashlib
 from sqlmodel import Session, select
 from app.models import AppSetting, CardState, Question, Topic, DailyPlan, Review, Grade
 
@@ -28,6 +28,10 @@ def ddia_question_allowed(q: Question, topic: Topic | None, chapters: set[int]) 
 def topic_key(topic: Topic | None) -> str:
     return topic.name.strip().lower() if topic else "unknown"
 
+def stable_random_bonus(question_id: int | None, on_date: date) -> float:
+    digest=hashlib.sha256(f"{on_date.isoformat()}:{question_id or 0}".encode("utf-8")).hexdigest()
+    return (int(digest[:8], 16) / 0xFFFFFFFF) * 0.3
+
 def select_today_questions(session:Session, on_date:date):
     questions=session.exec(select(Question).where(Question.active==True)).all()
     plan=session.exec(select(DailyPlan).where(DailyPlan.date==on_date).order_by(DailyPlan.generated_at.desc())).first()
@@ -45,7 +49,7 @@ def select_today_questions(session:Session, on_date:date):
         weak=(1-(cs.recent_accuracy if cs else 0.5))*2
         imp=(topic.priority_weight/5) if topic else 0
         bonus=1.5 if focus and topic and topic.name==focus else 0
-        rand=random.random()*0.3
+        rand=stable_random_bonus(q.id, on_date)
         ranked.append((q,topic,due+weak+imp+bonus+rand))
     ranked.sort(key=lambda x:x[2], reverse=True)
     targeted=[]

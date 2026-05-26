@@ -327,6 +327,49 @@ function storedPassword() {
   return '';
 }
 
+function quizSessionStorageKey(date: string, chapters: number[]) {
+  const chapterKey = chapters.length ? chapters.slice().sort((a, b) => a - b).join('-') : 'all';
+  return `command-card-quiz-session:${date}:${chapterKey}`;
+}
+
+function readStoredQuizSession(key: string, fetchedQuiz: Question[]) {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    const stored = JSON.parse(raw) as Question[];
+    if (!Array.isArray(stored) || !stored.length) return null;
+    const fetchedById = new Map(fetchedQuiz.map((question) => [question.id, question]));
+    const merged = stored
+      .filter((question) => Number.isFinite(question?.id))
+      .map((question) => fetchedById.get(question.id) || question);
+    if (!merged.length) return null;
+    const seen = new Set(merged.map((question) => question.id));
+    const appended = fetchedQuiz.filter((question) => !seen.has(question.id));
+    return [...merged, ...appended].slice(0, Math.max(merged.length, fetchedQuiz.length));
+  } catch {
+    localStorage.removeItem(key);
+    return null;
+  }
+}
+
+function stableQuizSession(date: string, chapters: number[], fetchedQuiz: Question[]) {
+  const key = quizSessionStorageKey(date, chapters);
+  const stored = readStoredQuizSession(key, fetchedQuiz);
+  if (stored) {
+    localStorage.setItem(key, JSON.stringify(stored));
+    return stored;
+  }
+  if (fetchedQuiz.length) localStorage.setItem(key, JSON.stringify(fetchedQuiz));
+  return fetchedQuiz;
+}
+
+function clearQuizSessionsForDate(date: string) {
+  const prefix = `command-card-quiz-session:${date}:`;
+  Object.keys(localStorage)
+    .filter((key) => key.startsWith(prefix))
+    .forEach((key) => localStorage.removeItem(key));
+}
+
 function Button({ variant = 'secondary', size = 'md', className = '', ...props }: ButtonProps) {
   return (
     <button
@@ -628,8 +671,9 @@ function App() {
       ]);
 
       setPlan(nextPlan);
+      const stableQuiz = stableQuizSession(today, nextDdiaSettings.chapters || [], nextQuiz);
       setCheckin(nextCheckin);
-      setQuiz(nextQuiz);
+      setQuiz(stableQuiz);
       setTopics(nextTopics);
       setTargets(nextTargets);
       setTasks(nextTasks);
@@ -642,7 +686,7 @@ function App() {
       setDailySettings(nextDailySettings);
       setWorkTaskTarget(nextDailySettings.work_task_target);
       setError('');
-      if (quizIndex >= nextQuiz.length) setQuizIndex(0);
+      setQuizIndex((current) => (current >= stableQuiz.length ? 0 : current));
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -801,6 +845,11 @@ function App() {
   async function saveDdiaChapters(chapters = selectedDdiaChapters) {
     setSaving(true);
     try {
+      clearQuizSessionsForDate(today);
+      setQuizIndex(0);
+      setAnswer('');
+      setAnswerRevealed(false);
+      setQuizFeedback('');
       const next = await requestJson<DdiaChapterSettings>('/api/settings/ddia-chapters', {
         method: 'PATCH',
         body: { chapters },
@@ -1719,8 +1768,17 @@ function App() {
             eyebrow="Daily queue"
             title="10 DDIA + 10 Chinese"
             action={
-              <Button size="sm" variant="primary" onClick={() => setQuizIndex(0)}>
-                Start quiz
+              <Button
+                size="sm"
+                variant="primary"
+                onClick={() => {
+                  setQuizIndex(0);
+                  setAnswer('');
+                  setAnswerRevealed(false);
+                  setQuizFeedback('');
+                }}
+              >
+                Restart
               </Button>
             }
           />

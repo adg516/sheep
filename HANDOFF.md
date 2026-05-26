@@ -8,7 +8,7 @@ Last updated: 2026-05-26
 - Backend: https://arjunsheep-api.fly.dev
 - Current app password: `Galloran@1234`
 - Production branch: `main`
-- Latest deployed change: `Keep command card date manual and carry missed tasks`
+- Latest deployed change: `Stabilize daily quiz queue`
 
 Security note: the app password is intentionally static because the user requested it for now. Treat it as a convenience password, not real security. Rotate later if this app becomes less private.
 
@@ -29,6 +29,7 @@ git push origin HEAD:main
 Recent commits:
 
 ```text
+Stabilize daily quiz queue
 Keep command card date manual and carry missed tasks
 Add API coverage and harden task writes
 Add admin priority points and task deletion
@@ -105,6 +106,8 @@ Backend selector:
 - Excludes BJJ questions.
 - Respects the DDIA chapter filter.
 - Ranks within each topic using due date, weakness, topic priority, current focus bonus, and small randomness.
+- The randomness is deterministic per date/question so repeated `/api/quiz/today` calls keep the same order.
+- The frontend stores the day's quiz session in local storage keyed by card date + DDIA chapters, so incidental app refreshes cannot swap the question under the current `quizIndex`.
 - Falls back to generic ranking only if there are no DDIA/Chinese target-topic questions available.
 
 Planner now records:
@@ -183,7 +186,7 @@ Last result:
 33 passed
 ```
 
-The suite now includes route-level FastAPI tests in `backend/tests/test_api.py` for password protection, task priority persistence/clamping, task deletion, task date filtering, missed-task incompleteness, daily settings, check-in upsert behavior, DDIA chapter settings, calendar event deletion, MCQ import, and generated plan persistence.
+The suite now includes route-level FastAPI tests in `backend/tests/test_api.py` for password protection, task priority persistence/clamping, task deletion, task date filtering, missed-task incompleteness, daily settings, check-in upsert behavior, DDIA chapter settings, calendar event deletion, MCQ import, and generated plan persistence. `backend/tests/test_logic.py` also covers stable same-day quiz ordering.
 
 Frontend build:
 
