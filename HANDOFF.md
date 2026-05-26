@@ -1,6 +1,6 @@
 # Command Card Handoff
 
-Last updated: 2026-05-25
+Last updated: 2026-05-26
 
 ## Production
 
@@ -8,7 +8,7 @@ Last updated: 2026-05-25
 - Backend: https://arjunsheep-api.fly.dev
 - Current app password: `Galloran@1234`
 - Production branch: `main`
-- Latest deployed change: `Add API coverage and harden task writes`
+- Latest deployed change: `Keep command card date manual and carry missed tasks`
 
 Security note: the app password is intentionally static because the user requested it for now. Treat it as a convenience password, not real security. Rotate later if this app becomes less private.
 
@@ -29,6 +29,7 @@ git push origin HEAD:main
 Recent commits:
 
 ```text
+Keep command card date manual and carry missed tasks
 Add API coverage and harden task writes
 Add admin priority points and task deletion
 af426d0 Show all work tasks on command card
@@ -67,7 +68,8 @@ Important behavior:
 
 - Every planned work task appears on the card. The old work-task target no longer limits card display.
 - Task rows on the card have `Done`, `Missed`, and `Skip`.
-- Marking a task changes its backend status and removes it from the planned command-card list.
+- The command card date is manually controlled and stored in local storage. It does not roll over at midnight; use the date control / "Use today" button to start a new card.
+- Marking a task `Done` completes it. Marking it `Missed` leaves it incomplete; missed tasks from earlier card dates carry onto later cards.
 - The standalone focus row also has `Done`, `Missed`, and `Skip`; it records a one-off focus task.
 - Work tasks are still reordered with up/down arrows in the Work task panel and Tasks tab.
 - Task rows can be deleted from the Tasks tab via the trash icon. This calls `DELETE /api/tasks/{id}`.
@@ -181,7 +183,7 @@ Last result:
 33 passed
 ```
 
-The suite now includes route-level FastAPI tests in `backend/tests/test_api.py` for password protection, task priority persistence/clamping, task deletion, task date filtering, daily settings, check-in upsert behavior, DDIA chapter settings, calendar event deletion, MCQ import, and generated plan persistence.
+The suite now includes route-level FastAPI tests in `backend/tests/test_api.py` for password protection, task priority persistence/clamping, task deletion, task date filtering, missed-task incompleteness, daily settings, check-in upsert behavior, DDIA chapter settings, calendar event deletion, MCQ import, and generated plan persistence.
 
 Frontend build:
 

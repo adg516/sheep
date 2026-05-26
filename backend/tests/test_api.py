@@ -136,6 +136,28 @@ def test_task_date_filter_keeps_sessions_separate(client, auth_headers):
     assert [task["title"] for task in listed] == ["Today"]
 
 
+def test_missed_task_stays_incomplete_and_can_be_completed_later(client, auth_headers):
+    created = client.post(
+        "/api/tasks",
+        headers=auth_headers,
+        json={"title": "Carry forward me", "scheduled_date": "2026-05-25"},
+    ).json()
+
+    missed = client.post(f"/api/tasks/{created['id']}/miss", headers=auth_headers).json()
+    assert missed["status"] == "missed"
+    assert missed["completed_at"] is None
+    assert missed["scheduled_date"] == "2026-05-25"
+
+    completed = client.post(f"/api/tasks/{created['id']}/complete", headers=auth_headers).json()
+    assert completed["status"] == "done"
+    assert completed["completed_at"] is not None
+
+
+def test_missing_task_status_routes_return_404(client, auth_headers):
+    assert client.post("/api/tasks/999999/miss", headers=auth_headers).status_code == 404
+    assert client.post("/api/tasks/999999/complete", headers=auth_headers).status_code == 404
+
+
 def test_daily_settings_clamps_work_task_target(client, auth_headers):
     too_high = client.patch(
         "/api/settings/daily",

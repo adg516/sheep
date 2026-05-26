@@ -313,6 +313,20 @@ function storedApiBase() {
   return stored || defaultApi;
 }
 
+function isHeaderSafe(value: string) {
+  for (let index = 0; index < value.length; index += 1) {
+    if (value.charCodeAt(index) > 255) return false;
+  }
+  return true;
+}
+
+function storedPassword() {
+  const saved = localStorage.getItem('command-card-password') || defaultPassword;
+  if (isHeaderSafe(saved)) return saved;
+  localStorage.removeItem('command-card-password');
+  return '';
+}
+
 function Button({ variant = 'secondary', size = 'md', className = '', ...props }: ButtonProps) {
   return (
     <button
@@ -434,17 +448,21 @@ function SectionHeader({
 }
 
 function App() {
-  const today = useMemo(() => localDateString(), []);
+  const actualToday = localDateString();
+  const [cardDate, setCardDate] = useState(
+    () => localStorage.getItem('command-card-active-date') || localDateString(),
+  );
+  const today = cardDate;
   const [activeTab, setActiveTab] = useState<Tab>('Today');
   const [apiBase, setApiBase] = useState(
     () => storedApiBase(),
   );
   const [appPassword, setAppPassword] = useState(
-    () => localStorage.getItem('command-card-password') || defaultPassword,
+    () => storedPassword(),
   );
   const [settingsDraft, setSettingsDraft] = useState({ apiBase, appPassword });
   const [unlockPassword, setUnlockPassword] = useState(
-    () => localStorage.getItem('command-card-password') || defaultPassword,
+    () => storedPassword(),
   );
 
   const [plan, setPlan] = useState<Plan | null>(null);
@@ -500,17 +518,26 @@ function App() {
   const sourceById = useMemo(() => new Map(sources.map((source) => [source.id, source])), [sources]);
   const factById = useMemo(() => new Map([...facts, ...approvedFacts].map((fact) => [fact.id, fact])), [facts, approvedFacts]);
 
-  const plannedToday = tasks.filter((task) => task.scheduled_date === today && task.status === 'planned');
+  const cardOpenTasks = tasks.filter(taskIsOpenForCard);
   const adminTopic = topics.find((topic) => topic.name.toLowerCase() === 'admin');
   const mainTopic = topics.find(
     (topic) => topic.name.toLowerCase() === plan?.main_focus?.topic?.toLowerCase(),
   );
   const mainActionTask =
-    plannedToday.find((task) => mainTopic && task.topic_id === mainTopic.id) ||
-    plannedToday.find((task) => task.description === 'work_task') ||
+    cardOpenTasks.find((task) => mainTopic && task.topic_id === mainTopic.id) ||
+    cardOpenTasks.find((task) => task.description === 'work_task') ||
     null;
 
   async function requestJson<T>(path: string, options: RequestInit & { body?: unknown } = {}) {
+    const passwordForHeader = appPassword.trim();
+    if (!isHeaderSafe(passwordForHeader)) {
+      localStorage.removeItem('command-card-password');
+      setAppPassword('');
+      setUnlockPassword('');
+      setSettingsDraft((current) => ({ ...current, appPassword: '' }));
+      throw new Error('Saved password has unsupported characters. Re-enter Galloran@1234 to unlock.');
+    }
+
     const body =
       options.body && typeof options.body !== 'string'
         ? JSON.stringify(options.body)
@@ -520,7 +547,7 @@ function App() {
       body,
       headers: {
         'Content-Type': 'application/json',
-        'x-app-password': appPassword,
+        'x-app-password': passwordForHeader,
         ...(options.headers || {}),
       },
     };
@@ -625,13 +652,21 @@ function App() {
 
   useEffect(() => {
     loadData();
-  }, [apiBase, appPassword]);
+  }, [apiBase, appPassword, today]);
 
   function unlockApp(event?: React.FormEvent) {
     event?.preventDefault();
     const password = unlockPassword.trim();
     if (!password) {
       setError('Enter the app password to unlock Command Card.');
+      return;
+    }
+    if (!isHeaderSafe(password)) {
+      localStorage.removeItem('command-card-password');
+      setAppPassword('');
+      setUnlockPassword('');
+      setSettingsDraft((current) => ({ ...current, appPassword: '' }));
+      setError('That password has unsupported characters. Type Galloran@1234 directly.');
       return;
     }
     localStorage.setItem('command-card-password', password);
@@ -731,11 +766,28 @@ function App() {
   }
 
   function todayPlannedTasks(nextTasks: Task[]) {
-    return orderedTasks(nextTasks.filter((task) => task.scheduled_date === today && task.status === 'planned'));
+    return orderedTasks(nextTasks.filter(taskIsOpenForCard));
   }
 
   function todayPlannedAdminTasks(nextTasks: Task[]) {
-    return orderedAdminTasks(nextTasks.filter((task) => task.scheduled_date === today && task.status === 'planned'));
+    return orderedAdminTasks(nextTasks.filter(taskIsOpenForCard));
+  }
+
+  function taskIsOpenForCard(task: Task) {
+    if (task.status === 'planned') return task.scheduled_date === today;
+    if (task.status === 'missed') return !task.scheduled_date || task.scheduled_date < today;
+    return false;
+  }
+
+  function setActiveCardDate(nextDate: string) {
+    if (!nextDate) return;
+    localStorage.setItem('command-card-active-date', nextDate);
+    setCardDate(nextDate);
+    setQuizIndex(0);
+    setAnswer('');
+    setAnswerRevealed(false);
+    setQuizFeedback('');
+    setError('');
   }
 
   function toggleDdiaChapter(chapter: number) {
@@ -1280,6 +1332,11 @@ function App() {
   }
 
   function saveSettings() {
+    const nextPassword = settingsDraft.appPassword.trim();
+    if (!isHeaderSafe(nextPassword)) {
+      setError('That password has unsupported characters. Type Galloran@1234 directly.');
+      return;
+    }
     const nextApiBase =
       isProductionFrontend && !isLocalApiUrl(settingsDraft.apiBase)
         ? productionApi
@@ -1287,11 +1344,11 @@ function App() {
           ? defaultApi
           : settingsDraft.apiBase;
     localStorage.setItem('command-card-api-url', nextApiBase);
-    localStorage.setItem('command-card-password', settingsDraft.appPassword);
+    localStorage.setItem('command-card-password', nextPassword);
     setApiBase(nextApiBase);
-    setAppPassword(settingsDraft.appPassword);
-    setUnlockPassword(settingsDraft.appPassword);
-    setSettingsDraft({ apiBase: nextApiBase, appPassword: settingsDraft.appPassword });
+    setAppPassword(nextPassword);
+    setUnlockPassword(nextPassword);
+    setSettingsDraft({ apiBase: nextApiBase, appPassword: nextPassword });
   }
 
   const quizMix = useMemo(() => {
@@ -1331,7 +1388,7 @@ function App() {
     ...commandWorkTasks.map((task) => ({
       id: `work-${task.id}`,
       title: task.title,
-      detail: 'Work',
+      detail: task.status === 'missed' ? 'Work - missed earlier' : 'Work',
       kind: 'work',
       task,
     })),
@@ -1361,7 +1418,7 @@ function App() {
     ...todayAdminTasks.map((task) => ({
       id: `admin-${task.id}`,
       title: task.title,
-      detail: 'Admin',
+      detail: task.status === 'missed' ? 'Admin - missed earlier' : 'Admin',
       kind: 'admin',
       task,
     })),
@@ -1473,6 +1530,20 @@ function App() {
             <Button variant="primary" onClick={generatePlan} disabled={saving}>
               Generate today's plan
             </Button>
+            <div className="card-date-control">
+              <label htmlFor="card-date">Card date</label>
+              <input
+                id="card-date"
+                type="date"
+                value={today}
+                onChange={(event) => setActiveCardDate(event.target.value)}
+              />
+              {today !== actualToday ? (
+                <Button size="sm" onClick={() => setActiveCardDate(localDateString())} disabled={saving}>
+                  Use today
+                </Button>
+              ) : null}
+            </div>
             {loading ? <span className="muted">Refreshing...</span> : null}
           </div>
         </Card>

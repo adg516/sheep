@@ -523,6 +523,24 @@ main {
   padding-top: 0.2rem;
 }
 
+.card-date-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-left: auto;
+}
+
+.card-date-control label {
+  color: #435066;
+  font-size: 0.82rem;
+  font-weight: 900;
+}
+
+.card-date-control input {
+  min-height: 2.35rem;
+  width: 9.5rem;
+}
+
 .setup-block {
   display: grid;
   gap: 0.45rem;
@@ -1086,11 +1104,22 @@ main {
   }
 
   .button-row,
+  .card-date-control,
   .task-actions,
   .daily-order-actions,
   .point-actions,
   .priority-actions,
   .target-meta > div {
+    width: 100%;
+  }
+
+  .card-date-control {
+    display: grid;
+    grid-template-columns: 1fr;
+    margin-left: 0;
+  }
+
+  .card-date-control input {
     width: 100%;
   }
 

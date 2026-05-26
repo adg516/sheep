@@ -248,19 +248,26 @@ def delete_task(item_id: int, session: Session = Depends(get_session)):
 @app.post("/api/tasks/{item_id}/complete", dependencies=api_auth)
 def complete_task(item_id: int, session: Session = Depends(get_session)):
     task = session.get(Task, item_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
     task.status = TaskStatus.done
     task.completed_at = datetime.utcnow()
     session.add(task)
     session.commit()
+    session.refresh(task)
     return task
 
 
 @app.post("/api/tasks/{item_id}/miss", dependencies=api_auth)
 def miss_task(item_id: int, session: Session = Depends(get_session)):
     task = session.get(Task, item_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
     task.status = TaskStatus.missed
+    task.completed_at = None
     session.add(task)
     session.commit()
+    session.refresh(task)
     return task
 
 
