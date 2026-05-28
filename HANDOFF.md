@@ -1,6 +1,6 @@
 # Command Card Handoff
 
-Last updated: 2026-05-26
+Last updated: 2026-05-28
 
 ## Production
 
@@ -8,7 +8,7 @@ Last updated: 2026-05-26
 - Backend: https://arjunsheep-api.fly.dev
 - Current app password: `Galloran@1234`
 - Production branch: `main`
-- Latest deployed change: `Stabilize daily quiz queue`
+- Latest deployed change: `Persist active command card date`
 
 Security note: the app password is intentionally static because the user requested it for now. Treat it as a convenience password, not real security. Rotate later if this app becomes less private.
 
@@ -29,6 +29,7 @@ git push origin HEAD:main
 Recent commits:
 
 ```text
+ef80e08 Persist active command card date
 Stabilize daily quiz queue
 Keep command card date manual and carry missed tasks
 Add API coverage and harden task writes
@@ -38,6 +39,19 @@ c081714 Make daily quiz fixed and simplify command card
 fdf9afd Show daily commitments and prioritize work tasks
 2783184 Coerce check-in dates before Postgres queries
 ```
+
+## 2026-05-28 Update
+
+- Deployed backend and frontend for commit `ef80e08`.
+- Added `/api/settings/active-card-date` GET/PATCH. The active card date is now stored in backend `AppSetting`, so the card should not silently move to a new date on another device. The UI date control writes this setting; the button now says `Reset to today`.
+- Imported `C:\Users\megab\Downloads\ddia2_mcq_expanded_v4.jsonl` into production as DDIA with `update_existing=true`.
+- Import overlap behavior is covered by tests and uses `Question.external_id`.
+- Production verification after import:
+  - Expanded DDIA IDs present: 490/490
+  - Total questions: 707
+  - DDIA questions: 491
+  - Spot check `ddia2-ch14-035` has `source_page_start=586`, `source_pdf_page_start=610`
+- Initial one-shot PowerShell import timed out. Chunked PowerShell import hit JSON encoding issues on 40 records; those 40 were resent successfully with Python `json.dumps(..., ensure_ascii=False)`.
 
 ## Current Product Shape
 
@@ -183,10 +197,10 @@ cd C:\Users\megab\Documents\Codex\2026-05-17\prior-conversation-with-codex-conve
 Last result:
 
 ```text
-33 passed
+40 passed
 ```
 
-The suite now includes route-level FastAPI tests in `backend/tests/test_api.py` for password protection, task priority persistence/clamping, task deletion, task date filtering, missed-task incompleteness, daily settings, check-in upsert behavior, DDIA chapter settings, calendar event deletion, MCQ import, and generated plan persistence. `backend/tests/test_logic.py` also covers stable same-day quiz ordering.
+The suite now includes route-level FastAPI tests in `backend/tests/test_api.py` for password protection, task priority persistence/clamping, task deletion, task date filtering, missed-task incompleteness, daily settings, active card date persistence, check-in upsert behavior, DDIA chapter settings, calendar event deletion, MCQ import creation/update overlap, and generated plan persistence. `backend/tests/test_logic.py` also covers stable same-day quiz ordering.
 
 Frontend build:
 
