@@ -11,6 +11,7 @@ from app.models import (
     AppSetting,
     AtomicFact,
     DailyCheckIn,
+    DailyPlan,
     FactStatus,
     Question,
     QuestionType,
@@ -174,6 +175,62 @@ def test_daily_settings_clamps_work_task_target(client, auth_headers):
     assert too_low["work_task_target"] == 0
 
 
+def test_active_card_date_defaults_to_latest_plan(client, auth_headers, session):
+    session.add(
+        DailyPlan(
+            date=datetime(2026, 5, 25).date(),
+            day_type="open_day",
+            main_focus={"topic": "DDIA"},
+            quiz={"count": 20},
+        )
+    )
+    session.add(
+        DailyPlan(
+            date=datetime(2026, 5, 26).date(),
+            day_type="open_day",
+            main_focus={"topic": "LeetCode"},
+            quiz={"count": 20},
+        )
+    )
+    session.commit()
+
+    response = client.get("/api/settings/active-card-date", headers=auth_headers)
+
+    assert response.status_code == 200
+    assert response.json() == {"date": "2026-05-26"}
+
+
+def test_active_card_date_patch_persists_over_newer_plans(client, auth_headers, session):
+    response = client.patch(
+        "/api/settings/active-card-date",
+        headers=auth_headers,
+        json={"date": "2026-05-25"},
+    )
+    session.add(
+        DailyPlan(
+            date=datetime(2026, 5, 27).date(),
+            day_type="open_day",
+            main_focus={"topic": "Startup"},
+            quiz={"count": 20},
+        )
+    )
+    session.commit()
+
+    assert response.status_code == 200
+    assert client.get("/api/settings/active-card-date", headers=auth_headers).json() == {"date": "2026-05-25"}
+    assert session.get(AppSetting, "active_card_date").value == {"date": "2026-05-25"}
+
+
+def test_active_card_date_rejects_invalid_date(client, auth_headers):
+    response = client.patch(
+        "/api/settings/active-card-date",
+        headers=auth_headers,
+        json={"date": "today"},
+    )
+
+    assert response.status_code == 400
+
+
 def test_checkin_upserts_same_day_instead_of_duplicating(client, auth_headers, session):
     payload = {
         "date": "2026-05-25",
@@ -278,6 +335,44 @@ def test_import_mcq_jsonl_api_creates_source_backed_question(client, auth_header
     assert question.metadata_json["chapter"] == 3
     assert question.correct_choice == "A"
     assert fact.status == FactStatus.approved
+
+
+def test_import_mcq_jsonl_api_updates_overlapping_external_id(client, auth_headers, session):
+    first = (
+        '{"id":"ddia2-overlap-1","chapter":1,"question":"Which workload fits OLTP?",'
+        '"choices":[{"label":"A","text":"Big scans"},{"label":"B","text":"Point reads and writes"}],'
+        '"correct_choice":"B","answer":"Point reads and writes","explanation":"Old explanation",'
+        '"source_page_start":3,"source_page_end":4}'
+    )
+    second = (
+        '{"id":"ddia2-overlap-1","chapter":1,"question":"Which workload is most characteristic of OLTP?",'
+        '"choices":[{"label":"A","text":"Large analytical scans"},{"label":"B","text":"Many small point reads and writes"}],'
+        '"correct_choice":"B","answer":"Many small point reads and writes","explanation":"Updated explanation",'
+        '"source_page_start":5,"source_page_end":6}'
+    )
+
+    created = client.post(
+        "/api/import/mcq-jsonl",
+        headers=auth_headers,
+        json={"text": first, "topic_name": "DDIA", "source_title": "DDIA overlap"},
+    ).json()
+    updated = client.post(
+        "/api/import/mcq-jsonl",
+        headers=auth_headers,
+        json={"text": second, "topic_name": "DDIA", "source_title": "DDIA overlap"},
+    ).json()
+
+    questions = session.exec(select(Question)).all()
+    question = questions[0]
+    fact = session.exec(select(AtomicFact)).one()
+    assert created["created_questions"] == 1
+    assert updated["updated_existing"] == 1
+    assert len(questions) == 1
+    assert question.prompt == "Which workload is most characteristic of OLTP?"
+    assert question.correct_answer == "Many small point reads and writes"
+    assert question.explanation == "Updated explanation"
+    assert question.metadata_json["source_page_start"] == 5
+    assert fact.fact_text.endswith("Answer: Many small point reads and writes")
 
 
 def test_generate_plan_persists_retrievable_daily_plan(client, auth_headers, session):

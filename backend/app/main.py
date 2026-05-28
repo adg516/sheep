@@ -60,6 +60,13 @@ class DailySettingsPayload(BaseModel):
     work_task_target: int = 1
 
 
+class ActiveCardDatePayload(BaseModel):
+    date: str
+
+
+ACTIVE_CARD_DATE_KEY = "active_card_date"
+
+
 def available_ddia_chapters(session: Session) -> list[int]:
     topic = session.exec(select(Topic).where(Topic.name == "DDIA")).first()
     if not topic:
@@ -119,6 +126,21 @@ def daily_settings_payload(session: Session, on_date: date_type) -> dict:
         "date": on_date.isoformat(),
         "work_task_target": max(0, min(6, int(value.get("work_task_target", 1)))),
     }
+
+
+def active_card_date_payload(session: Session) -> dict:
+    setting = session.get(AppSetting, ACTIVE_CARD_DATE_KEY)
+    raw_date = (setting.value or {}).get("date") if setting else None
+    if raw_date:
+        return {"date": coerce_ymd_date(raw_date).isoformat()}
+
+    latest_plan = session.exec(
+        select(DailyPlan).order_by(DailyPlan.date.desc(), DailyPlan.generated_at.desc())
+    ).first()
+    if latest_plan:
+        return {"date": latest_plan.date.isoformat()}
+
+    return {"date": date_type.today().isoformat()}
 
 
 def clamp_priority_points(value) -> int:
@@ -407,6 +429,28 @@ def update_daily_settings(payload: DailySettingsPayload, session: Session = Depe
     session.add(setting)
     session.commit()
     return daily_settings_payload(session, settings_date)
+
+
+@app.get("/api/settings/active-card-date", dependencies=api_auth)
+def active_card_date(session: Session = Depends(get_session)):
+    try:
+        return active_card_date_payload(session)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.patch("/api/settings/active-card-date", dependencies=api_auth)
+def update_active_card_date(payload: ActiveCardDatePayload, session: Session = Depends(get_session)):
+    try:
+        card_date = coerce_ymd_date(payload.date)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    setting = session.get(AppSetting, ACTIVE_CARD_DATE_KEY) or AppSetting(key=ACTIVE_CARD_DATE_KEY)
+    setting.value = {"date": card_date.isoformat()}
+    setting.updated_at = datetime.utcnow()
+    session.add(setting)
+    session.commit()
+    return active_card_date_payload(session)
 
 
 @app.post("/api/import/mcq-jsonl", dependencies=api_auth)

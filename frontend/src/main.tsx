@@ -114,6 +114,10 @@ type DailySettings = {
   work_task_target: number;
 };
 
+type ActiveCardDate = {
+  date: string;
+};
+
 type CheckIn = {
   id?: number;
   date: string;
@@ -642,6 +646,18 @@ function App() {
 
     setLoading(true);
     try {
+      const activeCardDate = await requestJson<ActiveCardDate>('/api/settings/active-card-date');
+      if (activeCardDate.date && activeCardDate.date !== today) {
+        localStorage.setItem('command-card-active-date', activeCardDate.date);
+        setCardDate(activeCardDate.date);
+        setQuizIndex(0);
+        setAnswer('');
+        setAnswerRevealed(false);
+        setQuizFeedback('');
+        setError('');
+        return;
+      }
+
       const [
         nextPlan,
         nextCheckin,
@@ -823,15 +839,26 @@ function App() {
     return false;
   }
 
-  function setActiveCardDate(nextDate: string) {
+  async function setActiveCardDate(nextDate: string) {
     if (!nextDate) return;
-    localStorage.setItem('command-card-active-date', nextDate);
-    setCardDate(nextDate);
-    setQuizIndex(0);
-    setAnswer('');
-    setAnswerRevealed(false);
-    setQuizFeedback('');
-    setError('');
+    setSaving(true);
+    try {
+      const saved = await requestJson<ActiveCardDate>('/api/settings/active-card-date', {
+        method: 'PATCH',
+        body: { date: nextDate },
+      });
+      localStorage.setItem('command-card-active-date', saved.date);
+      setCardDate(saved.date);
+      setQuizIndex(0);
+      setAnswer('');
+      setAnswerRevealed(false);
+      setQuizFeedback('');
+      setError('');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSaving(false);
+    }
   }
 
   function toggleDdiaChapter(chapter: number) {
@@ -1589,7 +1616,7 @@ function App() {
               />
               {today !== actualToday ? (
                 <Button size="sm" onClick={() => setActiveCardDate(localDateString())} disabled={saving}>
-                  Use today
+                  Reset to today
                 </Button>
               ) : null}
             </div>
